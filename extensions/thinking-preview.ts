@@ -247,13 +247,17 @@ export function formatDuration(ms: number): string {
 /** Hint text; override without editing code via PI_THINKING_PREVIEW_HINT. */
 export function expandHint(): string {
 	const raw = process.env.PI_THINKING_PREVIEW_HINT;
-	return raw !== undefined && raw.trim() !== "" ? raw.trim() : DEFAULT_EXPAND_HINT;
+	return raw !== undefined && raw.trim() !== ""
+		? raw.trim()
+		: DEFAULT_EXPAND_HINT;
 }
 
 /** Label used for the "hidden" level; override via PI_THINKING_HIDDEN_LABEL. */
 export function hiddenLabel(): string {
 	const raw = process.env.PI_THINKING_HIDDEN_LABEL;
-	return raw !== undefined && raw.trim() !== "" ? raw.trim() : DEFAULT_HIDDEN_LABEL;
+	return raw !== undefined && raw.trim() !== ""
+		? raw.trim()
+		: DEFAULT_HIDDEN_LABEL;
 }
 
 /** `Took <d>` for a finished block, `Elapsed <d>` while it still streams. */

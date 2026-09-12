@@ -58,7 +58,10 @@ const ctx = {
 
 register(pi);
 check("registers a markdown transformer", transformers.length === 1);
-check("registers the /thinking-preview command", commands.has("thinking-preview"));
+check(
+	"registers the /thinking-preview command",
+	commands.has("thinking-preview"),
+);
 check("registers the --thinking-preview flag", flags.has("thinking-preview"));
 
 const transform = (markdown, messageType = "assistant-thinking") =>
@@ -68,12 +71,16 @@ const think = (n) =>
 const level = (markdown) => {
 	const out = transform(markdown);
 	if (out === "Thinking...") return "hidden";
-	if (out.includes("earlier line")) return `preview(${out.match(/(\d+) earlier/)[1]})`;
+	if (out.includes("earlier line"))
+		return `preview(${out.match(/(\d+) earlier/)[1]})`;
 	return "full";
 };
 
 await handlers.get("session_start")({}, ctx);
-check("session_start installs an input handler", typeof inputHandler === "function");
+check(
+	"session_start installs an input handler",
+	typeof inputHandler === "function",
+);
 check(
 	"session_start reports the default level",
 	calls.status.at(-1) === "thinking-preview=thinking:preview(3)",
@@ -90,15 +97,32 @@ check(
 	JSON.parse(readFileSync(statePath, "utf8")).view === "hidden",
 	readFileSync(statePath, "utf8").trim().replace(/\s+/g, " "),
 );
-check("2nd press shows the whole block", press()?.consume === true && level(think(30)) === "full", level(think(30)));
-check("3rd press returns to the preview", press()?.consume === true && level(think(30)) === "preview(27)");
-check("each press refreshed the transcript", calls.refresh >= 3, `${calls.refresh} refreshes`);
-check("each press updated the footer status", calls.status.at(-1) === "thinking-preview=thinking:preview(3)");
+check(
+	"2nd press shows the whole block",
+	press()?.consume === true && level(think(30)) === "full",
+	level(think(30)),
+);
+check(
+	"3rd press returns to the preview",
+	press()?.consume === true && level(think(30)) === "preview(27)",
+);
+check(
+	"each press refreshed the transcript",
+	calls.refresh >= 3,
+	`${calls.refresh} refreshes`,
+);
+check(
+	"each press updated the footer status",
+	calls.status.at(-1) === "thinking-preview=thinking:preview(3)",
+);
 
 // Everything that is not ctrl+t must reach pi untouched.
 check("ctrl+o is not consumed", inputHandler("\x0f") === undefined);
 check("plain text is not consumed", inputHandler("a") === undefined);
-check("ctrl+t with trailing bytes is not consumed", inputHandler("\x14abc") === undefined);
+check(
+	"ctrl+t with trailing bytes is not consumed",
+	inputHandler("\x14abc") === undefined,
+);
 check("alt+t is not consumed", inputHandler("\x1bt") === undefined);
 check("no other key changed the level", level(think(30)) === "preview(27)");
 
@@ -124,7 +148,10 @@ check(
 await commands.get("thinking-preview").handler("hidden", ctx);
 check("command hidden", level(think(30)) === "hidden");
 await commands.get("thinking-preview").handler("preview", ctx);
-check("command preview keeps the last line count", level(think(30)) === "preview(29)");
+check(
+	"command preview keeps the last line count",
+	level(think(30)) === "preview(29)",
+);
 await commands.get("thinking-preview").handler("bogus", ctx);
 check(
 	"command rejects junk",
@@ -144,7 +171,10 @@ await handlers.get("session_start")({}, ctx);
 check("old input handler was unsubscribed", calls.unsubscribed === 1);
 const beforeStacked = level(think(30));
 press();
-check("one press advances exactly one level", level(think(30)) !== beforeStacked);
+check(
+	"one press advances exactly one level",
+	level(think(30)) !== beforeStacked,
+);
 
 await handlers.get("session_shutdown")({}, ctx);
 check("shutdown unsubscribes", calls.unsubscribed === 2);

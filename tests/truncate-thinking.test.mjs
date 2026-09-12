@@ -39,7 +39,10 @@ check(
 	short.includes("line 1") && short.includes("line 3"),
 );
 check("short block has no hint", !short.includes("earlier line"));
-check("short block still gets the footer", short.trimEnd().endsWith("Took 3.6s"));
+check(
+	"short block still gets the footer",
+	short.trimEnd().endsWith("Took 3.6s"),
+);
 
 // 2) a long block shows the tail (most recent reasoning), hint above, footer below
 const long = truncateThinking(think(30), 5, { durationMs: 3600 });
@@ -50,7 +53,10 @@ check(
 	longLines[0],
 );
 check("head lines are dropped", !long.includes("line 25"));
-check("tail lines are kept", long.includes("line 26") && long.includes("line 30"));
+check(
+	"tail lines are kept",
+	long.includes("line 26") && long.includes("line 30"),
+);
 check(
 	"footer is the last line",
 	longLines[longLines.length - 1] === "Took 3.6s",
@@ -93,9 +99,13 @@ check(
 );
 
 // 4) an unclosed code fence in the tail is closed before the footer
-const fenced = truncateThinking("```js\ncode 1\ncode 2\ncode 3\ncode 4\n```", 2, {
-	durationMs: 900,
-});
+const fenced = truncateThinking(
+	"```js\ncode 1\ncode 2\ncode 3\ncode 4\n```",
+	2,
+	{
+		durationMs: 900,
+	},
+);
 check(
 	"dangling fence is closed",
 	fenced.includes("code 4\n```\n```\n\nTook 0.9s"),
@@ -116,10 +126,7 @@ check(
 );
 delete process.env.PI_THINKING_PREVIEW_HINT;
 process.env.PI_THINKING_HIDDEN_LABEL = "*thinking*";
-check(
-	"env overrides the hidden label",
-	hiddenLabel() === "*thinking*",
-);
+check("env overrides the hidden label", hiddenLabel() === "*thinking*");
 delete process.env.PI_THINKING_HIDDEN_LABEL;
 check("default hidden label matches pi's", hiddenLabel() === "Thinking...");
 
@@ -129,7 +136,10 @@ check(
 	"streaming block has no duration yet",
 	observe("hello", true, 1000) === null,
 );
-check("growing block keeps measuring", observe("hello world", true, 2000) === null);
+check(
+	"growing block keeps measuring",
+	observe("hello world", true, 2000) === null,
+);
 check(
 	"final render reports the elapsed time",
 	observe("hello world done", false, 4600) === 3600,

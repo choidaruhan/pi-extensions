@@ -12,7 +12,12 @@ const strip = (s) =>
 	s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
 
 let live = { view: "preview", lines: 3 }; // mimics the extension's module-level state
-const transformers = [createThinkingTransformer(() => live, () => 1200)];
+const transformers = [
+	createThinkingTransformer(
+		() => live,
+		() => 1200,
+	),
+];
 
 const thinking = Array.from(
 	{ length: 30 },
@@ -27,7 +32,14 @@ const msg = {
 };
 const render = (comp) => strip(comp.render(100).join("\n"));
 const make = (hidden = false) =>
-	new AssistantMessageComponent(msg, hidden, undefined, "Thinking...", 1, transformers);
+	new AssistantMessageComponent(
+		msg,
+		hidden,
+		undefined,
+		"Thinking...",
+		1,
+		transformers,
+	);
 
 let fail = 0;
 const check = (name, cond, extra = "") => {
@@ -56,7 +68,10 @@ for (const n of [1, 3, 5]) {
 		out.includes("Took 1.2s") && out.includes("391"),
 	);
 }
-check("N=1, N=3, N=5 render differently", new Set([byN[1], byN[3], byN[5]]).size === 3);
+check(
+	"N=1, N=3, N=5 render differently",
+	new Set([byN[1], byN[3], byN[5]]).size === 3,
+);
 check(
 	"N=1 render is shorter than N=5",
 	byN[1].split("\n").length < byN[5].split("\n").length,
@@ -68,7 +83,9 @@ for (const view of ["full", "preview", "hidden"]) {
 	live = { view, lines: 3 };
 	size[view] = render(make()).split("\n").length;
 }
-console.log(`lines rendered: full=${size.full} preview=${size.preview} hidden=${size.hidden}`);
+console.log(
+	`lines rendered: full=${size.full} preview=${size.preview} hidden=${size.hidden}`,
+);
 check(
 	"full > preview > hidden",
 	size.full > size.preview && size.preview > size.hidden,
@@ -83,18 +100,28 @@ live = { view: "hidden", lines: 5 };
 check("stale render is unchanged before refresh", render(comp) === before);
 comp.setHiddenThinkingLabel("Thinking..."); // what ui.setHiddenThinkingLabel() triggers per component
 const after = render(comp);
-check("refresh (setHiddenThinkingLabel) re-renders with the new level", after !== before);
-check("pre-refresh render showed the preview", before.includes("25 earlier lines"));
+check(
+	"refresh (setHiddenThinkingLabel) re-renders with the new level",
+	after !== before,
+);
+check(
+	"pre-refresh render showed the preview",
+	before.includes("25 earlier lines"),
+);
 check(
 	"post-refresh render hides the reasoning",
-	!after.includes("step 30") && after.includes("Thinking...") && after.includes("391"),
+	!after.includes("step 30") &&
+		after.includes("Thinking...") &&
+		after.includes("391"),
 );
 live = { view: "full", lines: 5 };
 comp.setHiddenThinkingLabel("Thinking...");
 const back = render(comp);
 check(
 	"switching back to full restores every step",
-	back.includes("step 1:") && back.includes("step 30") && !back.includes("earlier line"),
+	back.includes("step 1:") &&
+		back.includes("step 30") &&
+		!back.includes("earlier line"),
 );
 
 // 4) pi's own hidden mode short-circuits transformers entirely

@@ -109,7 +109,9 @@ def main():
 
     lines = [
         line.rstrip()
-        for line in strip_ansi(b"".join(collected).decode("utf8", "replace")).split("\n")
+        for line in strip_ansi(b"".join(collected).decode("utf8", "replace")).split(
+            "\n"
+        )
         if line.strip()
     ]
     print("=== last 25 screen lines ===")

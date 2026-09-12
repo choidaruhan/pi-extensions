@@ -39,21 +39,26 @@ if (mode === "write") {
 	rmSync(statePath, { force: true });
 	check("no state file -> built-in default", initial() === "preview:3");
 	check("no state file -> loadSavedState is null", loadSavedState() === null);
-	check("env view wins over the default", initial({ PI_THINKING_PREVIEW_VIEW: "full" }) === "full:3");
-	check("env lines wins over the default", initial({ PI_THINKING_PREVIEW_LINES: "9" }) === "preview:9");
+	check(
+		"env view wins over the default",
+		initial({ PI_THINKING_PREVIEW_VIEW: "full" }) === "full:3",
+	);
+	check(
+		"env lines wins over the default",
+		initial({ PI_THINKING_PREVIEW_LINES: "9" }) === "preview:9",
+	);
 	check(
 		"env lines=0 means hidden",
 		initial({ PI_THINKING_PREVIEW_LINES: "0" }) === "hidden:3",
 	);
-	check("junk env is ignored", initial({ PI_THINKING_PREVIEW_VIEW: "nope" }) === "preview:3");
+	check(
+		"junk env is ignored",
+		initial({ PI_THINKING_PREVIEW_VIEW: "nope" }) === "preview:3",
+	);
 
 	saveState({ view: "hidden", lines: 7 });
 	check("saved state round-trips", show(loadSavedState()) === "hidden:7");
-	check(
-		"saved state beats the default",
-		initial() === "hidden:7",
-		initial(),
-	);
+	check("saved state beats the default", initial() === "hidden:7", initial());
 	check(
 		"env beats the saved state",
 		initial({ PI_THINKING_PREVIEW_LINES: "2" }) === "preview:2",
@@ -67,7 +72,10 @@ if (mode === "write") {
 	// Legacy files: {"previewLines": N} came from the pre-level version, where 0 meant
 	// "no truncation" (the old /thinking-preview off) — that is the full level now.
 	writeFileSync(statePath, `${JSON.stringify({ previewLines: 5 })}\n`, "utf8");
-	check("legacy previewLines -> preview", show(loadSavedState()) === "preview:5");
+	check(
+		"legacy previewLines -> preview",
+		show(loadSavedState()) === "preview:5",
+	);
 	writeFileSync(statePath, `${JSON.stringify({ previewLines: 0 })}\n`, "utf8");
 	check("legacy previewLines 0 -> full", show(loadSavedState()) === "full:3");
 	writeFileSync(statePath, "{ not json", "utf8");
@@ -75,7 +83,10 @@ if (mode === "write") {
 
 	// Leave a known state behind for the fresh-process steps below.
 	saveState({ view: "hidden", lines: 7 });
-	check("re-saved state for the next steps", show(loadSavedState()) === "hidden:7");
+	check(
+		"re-saved state for the next steps",
+		show(loadSavedState()) === "hidden:7",
+	);
 } else if (mode === "env") {
 	// Fresh process: resolveInitialState() reads the real process.env here.
 	const env = process.env.PI_THINKING_PREVIEW_VIEW
@@ -91,7 +102,10 @@ if (mode === "write") {
 		show(resolveInitialState()),
 	);
 } else {
-	check("state file survives a fresh process", show(loadSavedState()) === "hidden:7");
+	check(
+		"state file survives a fresh process",
+		show(loadSavedState()) === "hidden:7",
+	);
 }
 
 console.log(fail === 0 ? "ALL PASS" : `${fail} FAILED`);

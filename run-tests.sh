@@ -5,10 +5,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 status=0
 step() {
-	local label="$1"
-	shift
-	printf '\n── %s\n' "$label"
-	"$@" || status=1
+  local label="$1"
+  shift
+  printf '\n── %s\n' "$label"
+  "$@" || status=1
 }
 
 step "truncateThinking unit + level specs" node tests/truncate-thinking.test.mjs

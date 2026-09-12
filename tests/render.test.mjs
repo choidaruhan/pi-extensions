@@ -145,10 +145,16 @@ const live = new AssistantMessageComponent(
 );
 const before = strip(live.render(100).join("\n"));
 state.view = "hidden";
-check("stale render is unchanged before refresh", strip(live.render(100).join("\n")) === before);
+check(
+	"stale render is unchanged before refresh",
+	strip(live.render(100).join("\n")) === before,
+);
 live.setHiddenThinkingLabel("Thinking..."); // what ui.setHiddenThinkingLabel() triggers per component
 const after = strip(live.render(100).join("\n"));
-check("refresh re-renders after a level change", after !== before && !after.includes("step 30"));
+check(
+	"refresh re-renders after a level change",
+	after !== before && !after.includes("step 30"),
+);
 
 // The built-in hiding still short-circuits transformers entirely.
 const builtinHidden = render([transformer], true);
