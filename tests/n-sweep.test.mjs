@@ -12,12 +12,7 @@ const strip = (s) =>
 	s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
 
 let live = { view: "preview", lines: 3 }; // mimics the extension's module-level state
-const transformers = [
-	createThinkingTransformer(
-		() => live,
-		() => 1200,
-	),
-];
+const transformers = [createThinkingTransformer(() => live)];
 
 const thinking = Array.from(
 	{ length: 30 },
@@ -63,10 +58,7 @@ for (const n of [1, 3, 5]) {
 		`N=${n} hint counts ${30 - n} earlier lines`,
 		hint.includes(`${30 - n} earlier lines`),
 	);
-	check(
-		`N=${n} keeps footer and answer`,
-		out.includes("Took 1.2s") && out.includes("391"),
-	);
+	check(`N=${n} keeps the answer`, out.includes("391"));
 }
 check(
 	"N=1, N=3, N=5 render differently",

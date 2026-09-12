@@ -4,12 +4,9 @@ import "./pi-root.mjs";
 
 const {
 	truncateThinking,
-	formatDuration,
-	createThinkingTiming,
 	createThinkingTransformer,
 	expandHint,
 	hiddenLabel,
-	thinkingFooter,
 	parseViewSpec,
 	nextView,
 	isThinkingContext,
@@ -32,20 +29,17 @@ const think = (n) =>
 
 const HINT = "ctrl+t to cycle";
 
-// 1) a block shorter than N keeps every line, but still reports its duration
-const short = truncateThinking(think(3), 5, { durationMs: 3600 });
+// 1) a block shorter than N keeps every line, byte for byte
+const short = truncateThinking(think(3), 5);
 check(
 	"short block keeps every line",
 	short.includes("line 1") && short.includes("line 3"),
 );
 check("short block has no hint", !short.includes("earlier line"));
-check(
-	"short block still gets the footer",
-	short.trimEnd().endsWith("Took 3.6s"),
-);
+check("short block is byte-identical", short === think(3));
 
-// 2) a long block shows the tail (most recent reasoning), hint above, footer below
-const long = truncateThinking(think(30), 5, { durationMs: 3600 });
+// 2) a long block shows the tail (most recent reasoning) with the hint above
+const long = truncateThinking(think(30), 5);
 const longLines = long.split("\n");
 check(
 	"hint is the first line",
@@ -58,17 +52,14 @@ check(
 	long.includes("line 26") && long.includes("line 30"),
 );
 check(
-	"footer is the last line",
-	longLines[longLines.length - 1] === "Took 3.6s",
+	"the tail is the last line",
+	longLines[longLines.length - 1] === "line 30",
 	longLines[longLines.length - 1],
 );
-check(
-	"hint/body/footer separated by blank lines",
-	/\n\nline 26/.test(long) && /\n\nTook/.test(long),
-);
+check("hint and body separated by a blank line", /\n\nline 26/.test(long));
 check("no blank-line pile-up", !/\n\n\n/.test(long));
 
-// 3) singular wording, zero-line mode, footer labels
+// 3) singular wording and zero-line mode
 check(
 	"singular hint for one dropped line",
 	truncateThinking(think(2), 1) === `... (1 earlier line, ${HINT})\n\nline 2`,
@@ -79,45 +70,22 @@ check(
 );
 check(
 	"maxLines=0 returns the markdown untouched",
-	truncateThinking(think(5), 0, { durationMs: 1000 }) === think(5),
-);
-check(
-	"streaming footer says Elapsed",
-	truncateThinking(think(30), 1, {
-		durationMs: 2100,
-		isStreaming: true,
-	}).endsWith("Elapsed 2.1s"),
-);
-check(
-	"no footer without a duration",
-	!truncateThinking(think(30), 1).includes("Took"),
-);
-check("thinkingFooter() is null without a duration", thinkingFooter() === null);
-check(
-	"thinkingFooter() formats a finished block",
-	thinkingFooter({ durationMs: 3600 }) === "Took 3.6s",
+	truncateThinking(think(5), 0) === think(5),
 );
 
-// 4) an unclosed code fence in the tail is closed before the footer
-const fenced = truncateThinking(
-	"```js\ncode 1\ncode 2\ncode 3\ncode 4\n```",
-	2,
-	{
-		durationMs: 900,
-	},
-);
+// 4) an unclosed code fence in the tail is closed
+const fenced = truncateThinking("```js\ncode 1\ncode 2\ncode 3\ncode 4\n```", 2);
 check(
 	"dangling fence is closed",
-	fenced.includes("code 4\n```\n```\n\nTook 0.9s"),
+	fenced.endsWith("code 4\n```\n```"),
 	JSON.stringify(fenced),
 );
+check(
+	"the fence count stays even",
+	(fenced.match(/^\s*```/gm) ?? []).length % 2 === 0,
+);
 
-// 5) duration formatting matches pi's bash footer
-check("formatDuration(3600) is 3.6s", formatDuration(3600) === "3.6s");
-check("formatDuration(0) is 0.0s", formatDuration(0) === "0.0s");
-check("formatDuration(65000) is 65.0s", formatDuration(65000) === "65.0s");
-
-// 6) hint/label text overrides
+// 5) hint/label text overrides
 process.env.PI_THINKING_PREVIEW_HINT = "press X to expand";
 check(
 	"env overrides the hint",
@@ -130,48 +98,9 @@ check("env overrides the hidden label", hiddenLabel() === "*thinking*");
 delete process.env.PI_THINKING_HIDDEN_LABEL;
 check("default hidden label matches pi's", hiddenLabel() === "Thinking...");
 
-// 7) duration tracking across streaming renders
-const observe = createThinkingTiming();
-check(
-	"streaming block has no duration yet",
-	observe("hello", true, 1000) === null,
-);
-check(
-	"growing block keeps measuring",
-	observe("hello world", true, 2000) === null,
-);
-check(
-	"final render reports the elapsed time",
-	observe("hello world done", false, 4600) === 3600,
-);
-check(
-	"re-render keeps the measured time",
-	observe("hello world done", false, 9000) === 3600,
-);
-observe("another block", true, 10000);
-check(
-	"a previous block still resolves via the cache",
-	observe("hello world done", false, 11000) === 3600,
-);
-check(
-	"a block never seen streaming has no timing",
-	observe("restored from disk", false, 12000) === null,
-);
-check(
-	"that block does not clobber the active timer",
-	observe("another block grows", true, 13000) === null,
-);
-check(
-	"the active block still measures its own span",
-	observe("another block grows more", false, 15000) === 5000,
-);
-
-// 8) transformer wiring: only thinking parts are touched, isStreaming is forwarded
+// 6) transformer wiring: only thinking parts are touched, live state is read
 const state = { value: { view: "preview", lines: 1 } };
-const transformer = createThinkingTransformer(
-	() => state.value,
-	(_markdown, isStreaming) => (isStreaming ? 2100 : 3600),
-);
+const transformer = createThinkingTransformer(() => state.value);
 const ANSWER = "Took nothing here, just the answer.";
 check(
 	"answer text is passed through untouched",
@@ -186,11 +115,15 @@ check(
 	}).includes("29 earlier lines"),
 );
 check(
-	"streaming thinking parts show Elapsed",
+	"streaming and finished thinking parts render alike",
 	transformer(think(30), {
 		messageType: "assistant-thinking",
 		isStreaming: true,
-	}).endsWith("Elapsed 2.1s"),
+	}) ===
+		transformer(think(30), {
+			messageType: "assistant-thinking",
+			isStreaming: false,
+		}),
 );
 state.value = { view: "preview", lines: 4 };
 check(
@@ -201,7 +134,7 @@ check(
 	}).includes("26 earlier lines"),
 );
 
-// 9) the three display levels
+// 8) the three display levels
 state.value = { view: "hidden", lines: 4 };
 check(
 	"hidden view renders only the label",
@@ -226,18 +159,10 @@ check(
 	full.includes("line 1") && full.includes("line 30"),
 );
 check("full view has no hint", !full.includes("earlier"));
-check("full view keeps the footer", full.trimEnd().endsWith("Took 3.6s"));
+check("full view is byte-identical to the markdown", full === think(30));
 check("full view does not stack blank lines", !/\n\n\n/.test(full));
-check(
-	"full view with no measured duration is byte-identical",
-	createThinkingTransformer(
-		() => ({ view: "full", lines: 4 }),
-		() => null,
-	)(think(3), { messageType: "assistant-thinking", isStreaming: false }) ===
-		think(3),
-);
 
-// 10) the thinking gate accepts both context shapes pi has used
+// 9) the thinking gate accepts both context shapes pi has used
 check(
 	"messageType=assistant-thinking is thinking",
 	isThinkingContext({ messageType: "assistant-thinking" }),
@@ -249,7 +174,7 @@ check(
 	transformer(think(30), { kind: "text", isStreaming: false }) === think(30),
 );
 
-// 11) view specs (flag, env and command share this parser)
+// 10) view specs (flag, env and command share this parser)
 check(
 	"level order is full -> preview -> hidden",
 	THINKING_VIEWS.join(",") === "full,preview,hidden",

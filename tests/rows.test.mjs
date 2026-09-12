@@ -29,7 +29,9 @@ const check = (name, cond, extra = "") => {
 	);
 };
 
-const words = "product seventeen times twenty three reasoning ".repeat(12).trim();
+const words = "product seventeen times twenty three reasoning "
+	.repeat(12)
+	.trim();
 /** The user's report: one logical line, many rendered rows. */
 const longLine = "가나다라마바사아자차카타파하 ".repeat(6).trim();
 
@@ -53,7 +55,11 @@ for (const width of [20, 40, 100]) {
 		const model = countRenderedRows(md, width);
 		if (real !== model) wrong.push(`${name}: pi=${real} model=${model}`);
 	}
-	check(`width ${width}: every shape exact`, wrong.length === 0, wrong.join(", "));
+	check(
+		`width ${width}: every shape exact`,
+		wrong.length === 0,
+		wrong.join(", "),
+	);
 }
 
 console.log("\n── a preview tail never renders more rows than asked");
@@ -91,7 +97,9 @@ const flat = longLine.replace(/\s+/g, " ");
 const fragment = tail.shown.replace(/\s+/g, " ").trim();
 check(
 	"the fragment is a suffix of the wrapped line",
-	flat.endsWith(fragment) && fragment.length < flat.length && fragment.length > 0,
+	flat.endsWith(fragment) &&
+		fragment.length < flat.length &&
+		fragment.length > 0,
 	JSON.stringify({ fragment, dropped: flat.length - fragment.length }),
 );
 check(

@@ -4,7 +4,7 @@
  * Gives thinking blocks three display levels instead of pi's built-in two, and
  * cycles them with Ctrl+T:
  *
- *   1. full     every line of the block (plus the `Took <duration>` footer)
+ *   1. full     every line of the block
  *   2. preview  the *tail* of the block: the last N rendered rows of reasoning with a
  *               `... (X earlier lines, ctrl+t)` hint above (default level). N counts rows
  *               as they land on screen, so a line the terminal wraps costs the several rows
@@ -39,10 +39,6 @@
  *     still has it enabled, the renderer takes a Text() path that never consults
  *     markdown transformers, so the preview cannot run; the extension warns at
  *     session start and the command reports it.
- *   - The `Took`/`Elapsed` footer is measured from this extension's first render
- *     of a block to its first non-streaming render, so it approximates the time
- *     that block spent thinking. Blocks restored from an older session were never
- *     observed live and therefore show no footer.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -84,9 +80,6 @@ const HINT_KEY = "ctrl+t";
 const DEFAULT_EXPAND_HINT = `${HINT_KEY} to cycle`;
 /** Label rendered for the "hidden" level (matches pi's own default). */
 const DEFAULT_HIDDEN_LABEL = "Thinking...";
-
-/** How many finished blocks keep their measured duration (FIFO eviction). */
-const TIMED_BLOCK_LIMIT = 64;
 
 const AGENT_DIR = join(
 	process.env.PI_CODING_AGENT_DIR ??
@@ -246,11 +239,6 @@ function refreshTranscript(ui: {
 	ui.setHiddenThinkingLabel();
 }
 
-/** Same format pi uses for its tool-duration footer (e.g. "3.6s"). */
-export function formatDuration(ms: number): string {
-	return `${(ms / 1000).toFixed(1)}s`;
-}
-
 /** Hint text; override without editing code via PI_THINKING_PREVIEW_HINT. */
 export function expandHint(): string {
 	const raw = process.env.PI_THINKING_PREVIEW_HINT;
@@ -267,77 +255,6 @@ export function hiddenLabel(): string {
 		: DEFAULT_HIDDEN_LABEL;
 }
 
-/** `Took <d>` for a finished block, `Elapsed <d>` while it still streams. */
-export function thinkingFooter(
-	options: { durationMs?: number | null; isStreaming?: boolean } = {},
-): string | null {
-	if (options.durationMs === undefined || options.durationMs === null)
-		return null;
-	return `${options.isStreaming ? "Elapsed" : "Took"} ${formatDuration(options.durationMs)}`;
-}
-
-interface BlockTiming {
-	/** Latest markdown seen for the block that is currently streaming. */
-	key: string;
-	startedAt: number;
-	sawStreaming: boolean;
-	durationMs: number | null;
-}
-
-/**
- * Track how long each thinking block spends streaming.
- *
- * Markdown transformers only receive the block's current text plus an
- * `isStreaming` flag, so a duration is measured from the first streaming render
- * of a block to its first non-streaming render. Finished durations are memoised
- * by a signature of the block text, so transcript re-renders (resize, /reload,
- * Ctrl+T, redraws) keep reporting the original time instead of restarting it.
- *
- * Returns an `observe(markdown, isStreaming, now?)` function that yields the
- * block's duration in ms, or null while it is unknown.
- */
-export function createThinkingTiming() {
-	let active: BlockTiming | null = null;
-	const timed = new Map<string, number>();
-	const signature = (markdown: string) => markdown.trim().slice(0, 120);
-
-	return function observe(
-		markdown: string,
-		isStreaming: boolean,
-		now = Date.now(),
-	): number | null {
-		const signatureKey = signature(markdown);
-
-		if (active !== null && markdown.startsWith(active.key)) {
-			active.key = markdown;
-			active.sawStreaming ||= isStreaming;
-			if (!isStreaming && active.sawStreaming && active.durationMs === null) {
-				active.durationMs = now - active.startedAt;
-				timed.set(signatureKey, active.durationMs);
-				if (timed.size > TIMED_BLOCK_LIMIT) {
-					const oldest = timed.keys().next().value;
-					if (oldest !== undefined) timed.delete(oldest);
-				}
-			}
-			return active.durationMs;
-		}
-
-		const known = timed.get(signatureKey);
-		if (known !== undefined) return known;
-		// A finished block we never watched stream (restored session, scroll-back): it has
-		// no measurable duration, and it must not clobber a block that is streaming now.
-		if (!isStreaming) return null;
-
-		active = {
-			key: markdown,
-			startedAt: now,
-			sawStreaming: true,
-			durationMs: null,
-		};
-		return null;
-	};
-}
-
 /** pi marks thinking parts as "assistant-thinking"; older builds used `kind`. */
 export function isThinkingContext(context: {
 	messageType?: string;
@@ -352,18 +269,12 @@ export function isThinkingContext(context: {
  * Build the markdown transformer the extension registers.
  *
  * pi runs the transformer list over EVERY assistant markdown part — the final
- * answer text included — so the thinking gate below is what keeps previews and
- * duration footers out of the response body. It is also what makes this factory
- * (rather than a raw arrow function) the thing tests exercise.
- *
- * `observe` is injectable so tests can supply deterministic durations.
+ * answer text included — so the thinking gate below is what keeps previews out of
+ * the response body. It is also what makes this factory (rather than a raw arrow
+ * function) the thing tests exercise.
  */
 export function createThinkingTransformer(
 	getState: () => ThinkingState,
-	observe: (
-		markdown: string,
-		isStreaming: boolean,
-	) => number | null = createThinkingTiming(),
 ): (
 	markdown: string,
 	context: {
@@ -376,23 +287,11 @@ export function createThinkingTransformer(
 	return (markdown, context) => {
 		if (!isThinkingContext(context)) return markdown;
 		const state = getState();
-		const durationMs = observe(markdown, context.isStreaming);
 
 		if (state.view === "hidden") return hiddenLabel();
-
-		if (state.view === "full") {
-			const footer = thinkingFooter({
-				durationMs,
-				isStreaming: context.isStreaming,
-			});
-			return footer === null
-				? markdown
-				: `${markdown.replace(/\s+$/, "")}\n\n${footer}`;
-		}
+		if (state.view === "full") return markdown;
 
 		return truncateThinking(markdown, state.lines, {
-			durationMs,
-			isStreaming: context.isStreaming,
 			// pi passes the markdown content width, which is exactly the wrap width it
 			// renders the transformer's output with, so row counts here match the screen.
 			width: context.availableWidth,
@@ -626,7 +525,9 @@ function selectTail(
 		}
 		// Re-emit the marker, but without its indentation: a nested item rendered on its own
 		// would be parsed as a code block instead of a list item.
-		kept.push(`${prefix.replace(/^\s+/, "")}${body.slice(offset).replace(/^\s+/, "")}`);
+		kept.push(
+			`${prefix.replace(/^\s+/, "")}${body.slice(offset).replace(/^\s+/, "")}`,
+		);
 		rows += cutRows;
 	}
 	kept.push(...lines.slice(start));
@@ -653,7 +554,10 @@ export function tailByRows(
 	// "Everything fits" is a question about screen rows (blank separators included); the
 	// budget the tail is cut to counts content rows only.
 	const renderedTotal = measured.reduce((rows, line) => rows + line.rows, 0);
-	const contentTotal = measured.reduce((rows, line) => rows + line.contentRows, 0);
+	const contentTotal = measured.reduce(
+		(rows, line) => rows + line.contentRows,
+		0,
+	);
 	if (renderedTotal <= maxRows) return { shown: trimmed, hiddenRows: 0 };
 
 	const selection = selectTail(lines, measured, maxRows, width);
@@ -671,9 +575,8 @@ export function tailByRows(
 }
 
 /**
- * Render a thinking block for display: the last `maxLines` rows, a hint above
- * reporting how many earlier rows were dropped, and (when known) a `Took`/`Elapsed`
- * footer.
+ * Render a thinking block for display: the last `maxLines` rows with a hint above
+ * reporting how many earlier rows were dropped.
  *
  * `maxLines` counts rendered rows when `width` is a positive number — the wrap width pi
  * passes as `availableWidth`, so a long line counts as the several rows it fills — and
@@ -683,20 +586,17 @@ export function tailByRows(
 export function truncateThinking(
 	markdown: string,
 	maxLines: number,
-	options: {
-		durationMs?: number | null;
-		isStreaming?: boolean;
-		width?: number;
-	} = {},
+	options: { width?: number } = {},
 ): string {
 	if (maxLines <= 0) return markdown;
 
-	const width = options.width !== undefined && options.width > 0 ? options.width : 0;
+	const width =
+		options.width !== undefined && options.width > 0 ? options.width : 0;
 	const { shown: body, hiddenRows } = tailByRows(markdown, maxLines, width);
 
 	let shown = body;
 
-	// A dangling code fence would swallow the footer (and look broken), so close it.
+	// A dangling code fence would swallow everything after it (and look broken), so close it.
 	const fenceCount = (shown.match(/^\s*```/gm) ?? []).length;
 	if (fenceCount % 2 === 1) shown += "\n```";
 
@@ -706,8 +606,6 @@ export function truncateThinking(
 		parts.push(`... (${hiddenRows} earlier ${unit}, ${expandHint()})`);
 	}
 	if (shown !== "") parts.push(shown);
-	const footer = thinkingFooter(options);
-	if (footer !== null) parts.push(footer);
 
 	return parts.join("\n\n");
 }
@@ -758,7 +656,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("thinking-preview", {
 		description:
-			"Thinking display level: full (whole block) | preview (last N lines + 'Took Xs') | hidden. Usage: /thinking-preview [n|full|preview|hidden]",
+			"Thinking display level: full (whole block) | preview (last N lines) | hidden. Usage: /thinking-preview [n|full|preview|hidden]",
 		handler: async (args, ctx) => {
 			ui = ctx.ui;
 			const raw = args.trim().toLowerCase();

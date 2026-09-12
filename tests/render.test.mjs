@@ -25,10 +25,7 @@ const msg = {
 // The extension's real transformer, used exactly as registerMarkdownTransformer uses it:
 // pi wraps it per markdown part, so it sees the answer text too and must ignore it.
 const state = { view: "preview", lines: 5 };
-const transformer = createThinkingTransformer(
-	() => state,
-	() => 3600,
-);
+const transformer = createThinkingTransformer(() => state);
 const render = (transformers, hiddenThinkingBlock = false) =>
 	strip(
 		new AssistantMessageComponent(
@@ -73,17 +70,13 @@ check(
 const hintAt = preview.indexOf("... (25 earlier lines");
 const tailAt = preview.indexOf("step 26");
 const answerAt = preview.indexOf("Answer: 391");
-const footerAt = preview.indexOf("Took 3.6s");
 check("hint sits above the tail", hintAt !== -1 && hintAt < tailAt);
 check(
-	"Took footer lands between the tail and the answer",
-	footerAt > tailAt && footerAt < answerAt,
-	`hint@${hintAt} tail@${tailAt} footer@${footerAt} answer@${answerAt}`,
+	"the tail sits above the answer",
+	tailAt !== -1 && tailAt < answerAt,
+	`hint@${hintAt} tail@${tailAt} answer@${answerAt}`,
 );
-check(
-	"the answer text gets no footer of its own",
-	preview.indexOf("Took", footerAt + 1) === -1,
-);
+check("the block gets no duration footer", !preview.includes("Took"));
 check("answer still visible in preview", preview.includes("391"));
 check(
 	"preview is shorter than plain",
@@ -91,7 +84,7 @@ check(
 	`${rows(preview)} < ${rows(plain)}`,
 );
 
-// Level 1: the whole block renders, still with its duration footer.
+// Level 1: the whole block renders.
 state.view = "full";
 const full = render([transformer]);
 check(
@@ -99,18 +92,18 @@ check(
 	full.includes("step 1:") && full.includes("step 30"),
 );
 check("full level has no hint", !full.includes("earlier line"));
-check("full level keeps the footer", full.includes("Took 3.6s"));
+check("full level gets no footer", !full.includes("Took"));
 check(
 	"full level is taller than preview",
 	rows(full) > rows(preview),
 	`${rows(full)} > ${rows(preview)}`,
 );
 check(
-	"full level with the footer lands the answer after it",
-	full.indexOf("Took 3.6s") < full.indexOf("Answer: 391"),
+	"full level lands the answer after the reasoning",
+	full.indexOf("step 30") < full.indexOf("Answer: 391"),
 );
 
-// Level 3: one muted label, no reasoning text, no footer.
+// Level 3: one muted label, no reasoning text.
 state.view = "hidden";
 const hidden = render([transformer]);
 check(
