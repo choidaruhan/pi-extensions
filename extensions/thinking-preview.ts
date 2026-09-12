@@ -213,7 +213,7 @@ export function hideThinkingBlockEnabled(cwd = process.cwd()): boolean {
 
 /** Shown when the built-in "hide" wins over this extension. */
 function hiddenWarning(): string {
-	return "thinking-preview: hideThinkingBlock=true 라 추론 블록이 통째로 접혀 미리보기가 안 보입니다. 설정을 false로 두고 Ctrl+T로 단계를 바꾸세요.";
+	return "thinking-preview: hideThinkingBlock=true 라 추론 블록이 통째로 접혀 이 확장이 그릴 수 없습니다. ~/.pi/agent/settings.json 에서 hideThinkingBlock을 false로 바꾸고 /reload 하세요.";
 }
 
 /** Which level the transcript is showing, for the status line. */
