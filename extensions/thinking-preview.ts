@@ -506,12 +506,10 @@ export function measureLines(lines: string[], width: number): LineRow[] {
 
 		const rows = blank
 			? 1
-			: wrapTextWithAnsi(markdownPlain(body), Math.max(1, width - columns))
-					.length;
+			: wrapTextWithAnsi(markdownPlain(body), Math.max(1, width - columns)).length;
 		// pi renders a blockquote as its own block, separated from the text above it by one empty
 		// row, so a quote that does not open the preview costs a row the source does not show.
-		const quoteRow =
-			!blank && index > 0 && !followedBlank && startsQuote ? 1 : 0;
+		const quoteRow = !blank && index > 0 && !followedBlank && startsQuote ? 1 : 0;
 		return {
 			rows: rows + quoteRow,
 			// A blank separator still costs a screen row; it is excluded from the hint's count
@@ -587,8 +585,7 @@ function selectTail(
 		);
 		const kept = segments.slice(Math.max(0, segments.length - cutRows));
 		if (kept.length === cutRows) {
-			for (let i = kept.length - 1; i >= 0; i--)
-				tail.unshift(plainRow(kept[i]));
+			for (let i = kept.length - 1; i >= 0; i--) tail.unshift(plainRow(kept[i]));
 			rows += cutRows;
 		}
 	}
@@ -742,7 +739,11 @@ function compose(markdown: string, maxLines: number, width: number): string {
 	// paragraph in front of the tail and markdown joins the two — so the composed preview is
 	// measured as well, and the budget corrected until the height settles on maxLines.
 	for (let pass = 0; pass < 8; pass++) {
-		({ shown: body, hiddenRows } = tailByRows(markdown, Math.max(0, budget), width));
+		({ shown: body, hiddenRows } = tailByRows(
+			markdown,
+			Math.max(0, budget),
+			width,
+		));
 		hint = hintRowCount > 0 && hiddenRows > 0 ? previewHint(hiddenRows) : "";
 		const rows = hint === "" ? 0 : hintRows(hint, width);
 		if (rows !== hintRowCount) {
@@ -755,11 +756,13 @@ function compose(markdown: string, maxLines: number, width: number): string {
 		const total = countRenderedRows(candidate, width);
 		// The budget can overshoot and come back, so the best fit seen is kept instead of the
 		// last candidate the loop happened to land on.
-		if (total <= maxLines && total > countRenderedRows(best, width)) best = candidate;
+		if (total <= maxLines && total > countRenderedRows(best, width))
+			best = candidate;
 		if (total === maxLines) return candidate;
 		const next = Math.max(0, budget + (maxLines - total));
 		if (next === budget) break;
-		budget = next;	}
+		budget = next;
+	}
 	let shown = best === "" ? preview(hint, body) : best;
 	// Whatever the composition did, never hand pi a block taller than the budget.
 	for (let pass = 0; pass < 4; pass++) {
