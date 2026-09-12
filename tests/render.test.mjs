@@ -74,7 +74,9 @@ check("hint sits above the tail", hintAt !== -1 && hintAt < tailAt);
 // The block is exactly N rows tall and every row is text: the hint sits directly above the
 // first kept line, with no blank separator spending one of the N rows on spacing.
 const previewLines = preview.split("\n").map((line) => line.trim());
-const hintLine = previewLines.findIndex((line) => line.startsWith("... (26 earlier"));
+const hintLine = previewLines.findIndex((line) =>
+	line.startsWith("... (26 earlier"),
+);
 const tailLine = previewLines.findIndex((line) => line.startsWith("step 27:"));
 check(
 	"hint sits directly above the tail, no blank row between",
@@ -219,7 +221,9 @@ const blockRows = (thinking, lines, width) => {
 			.join("\n"),
 	).split("\n");
 	const answerAt = out.findIndex((line) => line.includes("Answer"));
-	return out.slice(1, answerAt - 1).filter((line) => line.trim() !== "").length;
+	// Every row between the pad and the blank separator in front of the answer belongs to the
+	// block, including the empty row pi renders in front of a blockquote.
+	return out.slice(1, answerAt - 1).length;
 };
 for (const [shape, text] of Object.entries(shapeOf)) {
 	for (const width of [100, 60, 34, 20]) {

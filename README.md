@@ -97,8 +97,8 @@ with it the `hideThinkingBlock` write to `settings.json` — from ever running. 
   instead of a bare hint.
 - Within that budget `lines` counts **rendered rows**, not source lines: a line longer than the content
   width is counted as the several rows it wraps to, and a preview whose budget lands in the middle of such
-  a line shows the *tail* of that line (with its list marker or quote border re-emitted, so the fragment
-  wraps at the same width). Fence markers are dropped with the tail, so the preview can never end on a
+  a line shows the *tail* of that line, re-emitted one source line per row so it wraps at the same
+  width). Fence markers are dropped with the tail, so the preview can never end on a
   dangling fence. Known counting gap: pi renders a table cell across multiple rows, which can leave the
   preview shorter than N.
 - pi runs registered markdown transformers over **every** assistant markdown part, the final answer text

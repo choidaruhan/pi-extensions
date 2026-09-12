@@ -14,7 +14,7 @@ const { initTheme } = await import(`${DIST}/index.js`);
 const { getMarkdownTheme } = await import(
 	`${DIST}/modes/interactive/theme/theme.js`
 );
-const { Markdown } = await import("@earendil-works/pi-tui");
+const { Markdown, wrapTextWithAnsi } = await import("@earendil-works/pi-tui");
 initTheme("dark", false);
 
 const theme = getMarkdownTheme();
@@ -91,21 +91,27 @@ for (const width of [20, 40, 100]) {
 	);
 }
 
-console.log("\n── a cut line keeps the tail of its own text, not the head");
-const tail = tailByRows(`step one\nstep two\n${longLine}`, 2, 40);
-const flat = longLine.replace(/\s+/g, " ");
-const fragment = tail.shown.replace(/\s+/g, " ").trim();
+console.log("\n── a cut line keeps the rows the budget paid for");
+const cut = tailByRows(`step one\nstep two\n${longLine}`, 2, 40);
+const cutLines = cut.shown.split("\n");
 check(
-	"the fragment is a suffix of the wrapped line",
-	flat.endsWith(fragment) &&
-		fragment.length < flat.length &&
-		fragment.length > 0,
-	JSON.stringify({ fragment, dropped: flat.length - fragment.length }),
+	"the cut preview renders exactly the budgeted rows",
+	turn(cut.shown, 40) === 2,
+	`rows=${turn(cut.shown, 40)}`,
 );
+// A cut line is re-emitted as one source line per row it kept, so each kept row has to equal
+// the row pi itself would have wrapped that line into.
 check(
-	"the fragment keeps the line's last word",
-	fragment.endsWith(longLine.trim().split(" ").at(-1)),
-	JSON.stringify(fragment),
+	"the fragment is the tail rows of the wrapped line",
+	JSON.stringify(cutLines) ===
+		JSON.stringify(wrapTextWithAnsi(longLine, 40).slice(-cutLines.length)),
+	JSON.stringify(cutLines),
+);
+const lastWord = longLine.trim().split(" ").at(-1);
+check(
+	"the fragment keeps the end of the line's last word",
+	lastWord.endsWith(cutLines.at(-1).trim()),
+	JSON.stringify(cutLines.at(-1)),
 );
 
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAILED`);

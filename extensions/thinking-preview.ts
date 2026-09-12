@@ -367,6 +367,28 @@ export interface LineRow {
 const FENCE = /^\s*(```|~~~)/;
 /** pi renders a fence marker row plus one empty row after it. */
 const FENCE_OPEN_ROWS = 2;
+/** A heading or a thematic break always ends the paragraph in front of it. */
+const HEADING = /^\s{0,3}#{1,6}(?:\s|$)/;
+const THEMATIC_BREAK =
+	/^\s{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/;
+/** An ordered marker only interrupts an open paragraph when it starts at 1 (markdown-it). */
+const ORDERED_MARKER = /^\s{0,3}(\d{1,9})[.)][ \t]+/;
+
+/**
+ * The text pi puts on screen for one line of markdown: inline markup is consumed by the
+ * renderer, so backticks, emphasis markers and link targets never reach the terminal and
+ * never take up columns. Wrapping happens on this text, not on the source line, which is
+ * why a line full of `code spans` wraps earlier here than its source length suggests.
+ */
+export function markdownPlain(line: string): string {
+	return line
+		.replace(/`+([^`]*)`+/g, "$1")
+		.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+		.replace(/\\([\\`*_{}[\]()#+.!|>~-])/g, "$1")
+		.replace(/(\*\*\*|___|\*\*|__|~~)(?=\S)([\s\S]*?\S)\1/g, "$2")
+		.replace(/(?<![\w*])\*([^*\n]+)\*(?![\w*])/g, "$1")
+		.replace(/(?<![\w_])_([^_\n]+)_(?![\w_])/g, "$1");
+}
 
 /**
  * Measure how many rows each source line occupies at `width`.
@@ -378,10 +400,21 @@ const FENCE_OPEN_ROWS = 2;
  */
 export function measureLines(lines: string[], width: number): LineRow[] {
 	const levels: { depth: number; content: number }[] = [];
+	/** Content column of the paragraph the previous line left open, or -1 when none is open. */
+	let paragraph = -1;
+	/** Whether the previous line was a blank separator (a blockquote adds no row after one). */
+	let previousBlank = true;
+	/** Whether the previous line was itself a blockquote line (only the first one adds a row). */
+	let previousQuote = false;
 	let inFence = false;
 
-	return lines.map((line) => {
+	return lines.map((line, index) => {
 		const blank = line.trim() === "";
+		const followedBlank = previousBlank;
+		const quote = QUOTE_PREFIX.test(line);
+		const startsQuote = quote && !previousQuote;
+		previousBlank = blank;
+		previousQuote = quote;
 		if (!(width > 0)) {
 			const marker = FENCE.test(line);
 			return {
@@ -399,6 +432,7 @@ export function measureLines(lines: string[], width: number): LineRow[] {
 
 		if (FENCE.test(line)) {
 			levels.length = 0;
+			paragraph = -1;
 			if (!inFence) {
 				inFence = true;
 				return {
@@ -433,26 +467,56 @@ export function measureLines(lines: string[], width: number): LineRow[] {
 		}
 
 		const list = LIST_PREFIX.exec(line);
+		const ordered = ORDERED_MARKER.exec(line);
+		// An ordered marker other than "1." cannot interrupt an open paragraph: markdown keeps
+		// the line inside that paragraph, so it is wrapped at the paragraph's column rather
+		// than as a list item. Bullets and "1." always start their own list.
+		const listStart =
+			list !== null && (paragraph < 0 || ordered === null || ordered[1] === "1");
 		let depth = 0;
-		if (list !== null) {
+		let body = line;
+		let columns = 0;
+		if (blank) {
+			paragraph = -1;
+		} else if (listStart) {
 			const indent = list[1].length;
 			while (levels.length > 0 && levels[levels.length - 1].content > indent)
 				levels.pop();
 			depth = levels.length === 0 ? 0 : levels[levels.length - 1].depth + 1;
 			levels.push({ depth, content: indent + list[0].length });
-		} else if (line.trim() !== "") {
+			({ body, columns } = splitLinePrefix(line, depth));
+			paragraph = columns;
+		} else if (
+			paragraph >= 0 &&
+			!HEADING.test(line) &&
+			!THEMATIC_BREAK.test(line) &&
+			// A blockquote marker opens its own block instead of continuing the paragraph.
+			!QUOTE_PREFIX.test(line)
+		) {
+			// A plain line inside an open paragraph is a lazy continuation: markdown keeps it in
+			// that paragraph (inside a list item, inside a blockquote), so pi indents it to the
+			// paragraph's column and wraps it at the same reduced width.
+			columns = paragraph;
+			body = line.trim();
+		} else {
 			levels.length = 0;
+			({ body, columns } = splitLinePrefix(line, 0));
+			paragraph = columns;
 		}
 
-		const { body, columns } = splitLinePrefix(line, depth);
 		const rows = blank
 			? 1
-			: wrapTextWithAnsi(body, Math.max(1, width - columns)).length;
+			: wrapTextWithAnsi(markdownPlain(body), Math.max(1, width - columns))
+					.length;
+		// pi renders a blockquote as its own block, separated from the text above it by one empty
+		// row, so a quote that does not open the preview costs a row the source does not show.
+		const quoteRow =
+			!blank && index > 0 && !followedBlank && startsQuote ? 1 : 0;
 		return {
-			rows,
+			rows: rows + quoteRow,
 			// A blank separator still costs a screen row; it is excluded from the hint's count
 			// because the hint reports how many lines of reasoning went away, not spacing.
-			contentRows: blank ? 0 : rows,
+			contentRows: blank ? 0 : rows + quoteRow,
 			sliceable: true,
 			depth,
 			fenced: false,
@@ -489,7 +553,6 @@ function selectTail(
 	width: number,
 ): TailSelection {
 	if (maxRows <= 0) return { lines: [], rows: 0 };
-
 	const tail: string[] = [];
 	let rows = 0;
 	let cutLine = -1;
@@ -510,28 +573,40 @@ function selectTail(
 	}
 
 	if (cutLine >= 0 && cutRows > 0) {
-		const { prefix, body, columns } = splitLinePrefix(
+		const { body, columns } = splitLinePrefix(
 			lines[cutLine],
 			measured[cutLine].depth,
 		);
-		const segments = wrapTextWithAnsi(body, Math.max(1, width - columns));
-		// Walk the dropped segments through the source so the cut lands exactly where the
-		// wrapped rows split: each row break swallows a space, so column arithmetic alone
-		// would leave the kept text too long.
-		let offset = 0;
-		for (let i = 0; i < segments.length - cutRows; i++) {
-			const at = body.indexOf(segments[i], offset);
-			if (at < 0) break;
-			offset = at + segments[i].length;
-		}
-		// Re-emit the marker, but without its indentation: a nested item rendered on its own
-		// would be parsed as a code block instead of a list item.
-		tail.unshift(
-			`${prefix.replace(/^\s+/, "")}${body.slice(offset).replace(/^\s+/, "")}`,
+		// Wrap the line the way pi renders it (inline markup consumed) and keep its last rows.
+		// They are re-emitted as one source line per row: a long token pi broke across rows
+		// cannot be re-wrapped into exactly the rows that were cut, but a line short enough to
+		// fit costs exactly one row.
+		const segments = wrapTextWithAnsi(
+			markdownPlain(body),
+			Math.max(1, width - columns),
 		);
-		rows += cutRows;
+		const kept = segments.slice(Math.max(0, segments.length - cutRows));
+		if (kept.length === cutRows) {
+			for (let i = kept.length - 1; i >= 0; i--)
+				tail.unshift(plainRow(kept[i]));
+			rows += cutRows;
+		}
 	}
 	return { lines: tail, rows };
+}
+
+/**
+ * One rendered row re-emitted as a source line that cannot open a block of its own.
+ *
+ * A row that starts with a list bullet, a quote marker, a heading, a table pipe or a fence
+ * would be rendered as its own block and take a different number of rows than the cut paid
+ * for; escaping the first character keeps it plain text with the same visible columns.
+ */
+function plainRow(row: string): string {
+	// A trailing space becomes a row of its own when the text ends exactly on the wrap column,
+	// so the re-emitted rows carry no trailing whitespace.
+	const text = row.replace(/^\s+/, "").replace(/\s+$/, "");
+	return /^[-+*|>#`]|^\d{1,9}[.)]/.test(text) ? `\\${text}` : text;
 }
 
 /**
@@ -540,9 +615,9 @@ function selectTail(
  * Rows are counted the way pi renders them: a long line the terminal wraps costs the
  * several rows it fills, and blank separators are dropped rather than counted, so every row
  * the tail occupies on screen is a row of reasoning. When the budget lands in the middle of
- * a line, the front of that line is dropped and the line's own prefix (blockquote border,
- * list marker) is re-emitted, so the visible fragment keeps wrapping at the same width pi
- * would have used.
+ * a line, the rows of that line the budget paid for are re-emitted as plain source lines (one
+ * per row, marker dropped): a long token pi broke across rows cannot be re-wrapped into
+ * exactly the rows that were cut, but a line short enough to fit costs exactly one row.
  *
  * `hiddenRows` reports the lines of reasoning left out above the tail (blank separators
  * are not counted as reasoning).
@@ -565,13 +640,33 @@ export function tailByRows(
 	const selection = selectTail(lines, measured, maxRows, width);
 	const hiddenRows = contentTotal - selection.rows;
 	return {
-		shown: selection.lines.join("\n").replace(/\s+$/, ""),
+		// pi renders a trailing space that lands on the wrap column as an extra empty row, which
+		// the model does not count: the tail is emitted without trailing whitespace.
+		shown: selection.lines
+			.map((line) => line.replace(/[ \t]+$/, ""))
+			.join("\n")
+			.replace(/\s+$/, ""),
 		hiddenRows,
 	};
 }
 
 /** Rows the hint line adds when it fits on one row (narrow previews wrap it onto more). */
 const HINT_ROWS = 1;
+
+/**
+ * The markdown the reader sees: the hint above the tail.
+ *
+ * A single newline keeps the hint and the text on their own rows (pi renders a source line
+ * break as a row break inside a paragraph), so the block is exactly maxLines rows tall with
+ * no row spent on spacing. Fence markers are dropped with the tail, so the preview can never
+ * end on a dangling fence.
+ */
+function preview(hint: string, body: string): string {
+	const parts: string[] = [];
+	if (hint !== "") parts.push(hint);
+	if (body !== "") parts.push(body);
+	return parts.join("\n");
+}
 
 /** Rows a hint takes on screen: a hint wider than the preview wraps onto several rows. */
 function hintRows(hint: string, width: number): number {
@@ -609,6 +704,30 @@ export function truncateThinking(
 	// A block that already fits the whole budget is shown as it is, hint and all.
 	if (countRenderedRows(markdown, width) <= maxLines)
 		return markdown.replace(/\s+$/, "");
+
+	const bordered = compose(markdown, maxLines, width);
+	if (countRenderedRows(bordered, width) === maxLines) return bordered;
+	// pi renders a blockquote as its own block with an empty row in front of it, which a tight
+	// budget cannot pay for. Retry without the quote markers: the text stays, the row goes.
+	const plain = compose(dropQuoteBorders(markdown), maxLines, width);
+	return countRenderedRows(plain, width) > countRenderedRows(bordered, width)
+		? plain
+		: bordered;
+}
+
+/** The quote borders a block would show, removed so the text renders as plain rows. */
+function dropQuoteBorders(markdown: string): string {
+	return markdown
+		.split("\n")
+		.map((line) => line.replace(QUOTE_PREFIX, ""))
+		.join("\n");
+}
+
+/**
+ * The preview for `maxLines`, or the tallest one under it when the block cannot fill the
+ * budget exactly (a hint plus a blockquote need more rows than a one-row preview has).
+ */
+function compose(markdown: string, maxLines: number, width: number): string {
 	// A hint only earns its row when a line of reasoning still fits under it.
 	// The hint costs rows of its own and wraps when the preview is narrow, so the budget is
 	// re-measured until it settles: a smaller budget hides more lines, which can only make the
@@ -617,28 +736,39 @@ export function truncateThinking(
 	let body = "";
 	let hiddenRows = 0;
 	let hint = "";
-	for (let pass = 0; pass < 4; pass++) {
-		({ shown: body, hiddenRows } = tailByRows(
-			markdown,
-			maxLines - hintRowCount,
-			width,
-		));
+	let budget = maxLines - hintRowCount;
+	let best = "";
+	// The block pi renders is not always as tall as the source rows it kept — the hint opens a
+	// paragraph in front of the tail and markdown joins the two — so the composed preview is
+	// measured as well, and the budget corrected until the height settles on maxLines.
+	for (let pass = 0; pass < 8; pass++) {
+		({ shown: body, hiddenRows } = tailByRows(markdown, Math.max(0, budget), width));
 		hint = hintRowCount > 0 && hiddenRows > 0 ? previewHint(hiddenRows) : "";
 		const rows = hint === "" ? 0 : hintRows(hint, width);
-		if (rows === hintRowCount) break;
-		// A budget too small for even one row of reasoning shows text instead of a bare hint.
-		hintRowCount = maxLines - rows > 0 ? rows : 0;
+		if (rows !== hintRowCount) {
+			// A budget too small for even one row of reasoning shows text instead of a bare hint.
+			hintRowCount = maxLines - rows > 0 ? rows : 0;
+			budget = maxLines - hintRowCount;
+			continue;
+		}
+		const candidate = preview(hint, body);
+		const total = countRenderedRows(candidate, width);
+		// The budget can overshoot and come back, so the best fit seen is kept instead of the
+		// last candidate the loop happened to land on.
+		if (total <= maxLines && total > countRenderedRows(best, width)) best = candidate;
+		if (total === maxLines) return candidate;
+		const next = Math.max(0, budget + (maxLines - total));
+		if (next === budget) break;
+		budget = next;	}
+	let shown = best === "" ? preview(hint, body) : best;
+	// Whatever the composition did, never hand pi a block taller than the budget.
+	for (let pass = 0; pass < 4; pass++) {
+		if (countRenderedRows(shown, width) <= maxLines) break;
+		const lines = body.split("\n");
+		body = lines.length > 1 ? lines.slice(1).join("\n") : "";
+		shown = preview(body === "" ? "" : hint, body);
 	}
-
-	const parts: string[] = [];
-	if (hint !== "") parts.push(hint);
-	if (body !== "") parts.push(body);
-
-	// A single newline keeps the hint and the text on their own rows (pi renders a source
-	// line break as a row break inside a paragraph), so the block is exactly maxLines rows
-	// tall with no row spent on spacing. Fence markers are dropped with the tail, so the
-	// preview can never end on a dangling fence.
-	return parts.join("\n");
+	return shown;
 }
 
 /** Everything the event handlers need to talk to the UI. */
