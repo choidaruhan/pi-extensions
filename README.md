@@ -7,7 +7,7 @@ loaded into pi through symlinks from `~/.pi/agent/extensions/`.
 
 | Path | What it does |
 | --- | --- |
-| `extensions/thinking-preview.ts` | Collapses the `Thinking…` block to the first N lines with a `... (X more lines, Y total)` hint. Command `/thinking-preview [n\|off]`, flag `--thinking-preview <n>`, env `PI_THINKING_PREVIEW_LINES`. N is persisted to `~/.pi/agent/thinking-preview.json` so `/reload` and new sessions keep it. |
+| `extensions/thinking-preview.ts` | Keeps the *last* N lines of each `Thinking…` block — the most recent reasoning — with a `... (X earlier lines, ctrl+o to expand)` hint above and a `Took <duration>` (`Elapsed` while streaming) footer below, mirroring pi's own collapsed tool output. Command `/thinking-preview [n\|off]`, flag `--thinking-preview <n>`, env `PI_THINKING_PREVIEW_LINES`, hint override `PI_THINKING_PREVIEW_HINT`. N is persisted to `~/.pi/agent/thinking-preview.json` so `/reload` and new sessions keep it. |
 | `extensions/web-search-summary-model.ts` | Keeps `web-search.json` → `summaryModel` pointed at the active pi model. Opt-in: does nothing unless that file has `"summaryModelAuto": true`. |
 
 Not in this repo: `~/.pi/agent/extensions/herdr-agent-state.ts`, which the `herdr` tool installs and
@@ -39,9 +39,9 @@ cd ~/dev/pi-extensions && git commit -am "..."
 
 `./run-tests.sh` runs four suites with plain `node` (Node ≥ 23 strips TypeScript natively):
 
-- `tests/truncate-thinking.test.mjs` — unit tests for the markdown truncation
-- `tests/render.test.mjs` — renders pi's real `AssistantMessageComponent` with the transformer wired in
-- `tests/n-sweep.test.mjs` — N = 1/3/5 against the live transformer
+- `tests/truncate-thinking.test.mjs` — tail selection, hint/footer formatting, duration tracker, transformer wiring
+- `tests/render.test.mjs` — renders pi's real `AssistantMessageComponent` through the extension's own transformer
+- `tests/n-sweep.test.mjs` — N = 1/3/5, mid-session N changes, and the hidden-thinking path
 - `tests/state.test.mjs` — N persistence and precedence (flag > env > saved file > default)
 
 `tests/pi-root.mjs` locates the installed pi package (`$PI_ROOT`, then Homebrew Cellar, then npm `-g`)
@@ -57,6 +57,13 @@ git clone git@github.com:choidaruhan/pi-extensions.git ~/dev/pi-extensions
 
 ## Notes
 
+- The `Took`/`Elapsed` footer measures the gap between this extension's first render of a block and its
+  first non-streaming render, so it approximates the time that block spent thinking. Blocks restored
+  from an older session were never observed live (and a transcript redraw must not restart the clock),
+  so they show no footer.
+- pi runs registered markdown transformers over **every** assistant markdown part, the final answer text
+  included. `createThinkingTransformer`'s `messageType` gate is what keeps the preview and the footer
+  out of the response body — `tests/render.test.mjs` asserts exactly that.
 - No `package.json`: these are plain auto-discovered extensions, not an npm/pi package. If you later
   want `pi install git:...` or npm publishing, add a `package.json` with a `pi` manifest — but pick
   either the package route **or** the symlinks, not both, or pi loads each extension twice.
