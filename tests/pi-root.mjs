@@ -16,7 +16,16 @@ function candidateRoots() {
 			execSync("command -v pi", { encoding: "utf8", shell: "/bin/bash" }).trim(),
 		);
 		// Homebrew: <cellar>/<version>/bin/pi
-		roots.push(join(dirname(dirname(bin)), "libexec", "lib", "node_modules", "@earendil-works", "pi-coding-agent"));
+		roots.push(
+			join(
+				dirname(dirname(bin)),
+				"libexec",
+				"lib",
+				"node_modules",
+				"@earendil-works",
+				"pi-coding-agent",
+			),
+		);
 		// npm -g:  <prefix>/lib/node_modules/@earendil-works/pi-coding-agent/bin/pi
 		roots.push(dirname(dirname(bin)));
 	} catch {
@@ -27,7 +36,15 @@ function candidateRoots() {
 	if (existsSync(cellar)) {
 		for (const version of readdirSync(cellar).sort().reverse()) {
 			roots.push(
-				join(cellar, version, "libexec", "lib", "node_modules", "@earendil-works", "pi-coding-agent"),
+				join(
+					cellar,
+					version,
+					"libexec",
+					"lib",
+					"node_modules",
+					"@earendil-works",
+					"pi-coding-agent",
+				),
 			);
 		}
 	}
@@ -39,7 +56,9 @@ export function findPiRoot() {
 	for (const root of candidateRoots()) {
 		if (existsSync(join(root, "dist", "index.js"))) return root;
 	}
-	throw new Error("Could not locate the installed pi package. Set PI_ROOT to its package root.");
+	throw new Error(
+		"Could not locate the installed pi package. Set PI_ROOT to its package root.",
+	);
 }
 
 export const PI_ROOT = findPiRoot();

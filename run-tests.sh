@@ -11,10 +11,10 @@ step() {
 	"$@" || status=1
 }
 
-step "truncateThinking unit"       node tests/truncate-thinking.test.mjs
+step "truncateThinking unit" node tests/truncate-thinking.test.mjs
 step "TUI render (real component)" node tests/render.test.mjs
-step "N sweep 1/3/5"               node tests/n-sweep.test.mjs
-step "N persistence (state file)"  bash -c 'set -e
+step "N sweep 1/3/5" node tests/n-sweep.test.mjs
+step "N persistence (state file)" bash -c 'set -e
   node tests/state.test.mjs write
   node tests/state.test.mjs read
   PI_THINKING_PREVIEW_LINES=9 node tests/state.test.mjs read'
