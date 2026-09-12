@@ -57,18 +57,18 @@ console.log(
 );
 check("plain render shows the last reasoning step", plain.includes("step 30"));
 check(
-	"preview keeps the tail (step 26-30)",
-	preview.includes("step 26") && preview.includes("step 30"),
+	"preview keeps the newest reasoning (step 29-30)",
+	preview.includes("step 29") && preview.includes("step 30"),
 );
-check("preview drops the head", !preview.includes("step 1:"));
+check("preview drops the head", !preview.includes("step 28"));
 check(
 	"preview shows the collapsed-style hint",
-	preview.includes("... (25 earlier lines, ctrl+t to cycle)"),
+	preview.includes("... (28 earlier lines, ctrl+t to cycle)"),
 	preview.match(/\.\.\. \([^)]*\)/)?.[0] ?? "no hint",
 );
 
-const hintAt = preview.indexOf("... (25 earlier lines");
-const tailAt = preview.indexOf("step 26");
+const hintAt = preview.indexOf("... (28 earlier lines");
+const tailAt = preview.indexOf("step 29");
 const answerAt = preview.indexOf("Answer: 391");
 check("hint sits above the tail", hintAt !== -1 && hintAt < tailAt);
 check(
@@ -123,6 +123,42 @@ check(
 	rows(hidden) < rows(preview),
 	`${rows(hidden)} < ${rows(preview)}`,
 );
+
+// The budget is the height of the whole block on screen: hint, its blank line and the
+// reasoning tail together. This is the bug the row budget exists to fix — the preview used
+// to grow well past N rows as the tail took on more blank separators.
+const prose = Array.from(
+	{ length: 20 },
+	(_, i) => `step ${i + 1}: plain reasoning line`,
+).join("\n\n");
+const height = (lines) => {
+	state.view = "preview";
+	state.lines = lines;
+	const out = strip(
+		new AssistantMessageComponent(
+			{
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: prose },
+					{ type: "text", text: "Answer: 391" },
+				],
+			},
+			false,
+			undefined,
+			"Thinking...",
+			1,
+			[transformer],
+		)
+			.render(100)
+			.join("\n"),
+	).split("\n");
+	// The component pads one row above the block and one row before the answer.
+	return out.findIndex((line) => line.includes("Answer")) - 2;
+};
+for (const n of [3, 5, 7, 9]) {
+	const shown = height(n);
+	check(`preview of ${n} rows renders ${n} rows`, shown === n, `${shown}`);
+}
 
 // Live switching: the component caches its render, so the extension's refresh
 // (ui.setHiddenThinkingLabel() -> component.setHiddenThinkingLabel()) is what makes

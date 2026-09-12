@@ -379,7 +379,9 @@ export function measureLines(lines: string[], width: number): LineRow[] {
 		const blank = line.trim() === "";
 		if (!(width > 0))
 			return {
-				rows: blank ? 0 : 1,
+				// Without a width there is no wrapping to model, so one row is one source line;
+				// a blank separator still occupies the row it sits on in the final render.
+				rows: 1,
 				contentRows: blank ? 0 : 1,
 				sliceable: false,
 				depth: 0,
@@ -440,8 +442,8 @@ export function measureLines(lines: string[], width: number): LineRow[] {
 			: wrapTextWithAnsi(body, Math.max(1, width - columns)).length;
 		return {
 			rows,
-			// Blank separators are structural: they are free in the preview budget, so a
-			// budget of N shows N lines of reasoning rather than N screen rows of spacing.
+			// A blank separator still costs a screen row; it is excluded from the hint's count
+			// because the hint reports how many lines of reasoning went away, not spacing.
 			contentRows: blank ? 0 : rows,
 			sliceable: true,
 			depth,
@@ -466,20 +468,23 @@ interface ShownTail {
 
 interface TailSelection {
 	lines: string[];
-	/** Rows of the original block the selection keeps (blank separators not counted). */
+	/** Rendered rows the selection keeps, blank separators included. */
 	rows: number;
+	/** Content rows of the original block the selection keeps (blank separators not counted). */
+	contentRows: number;
 }
 
-/** Bottom-up selection of the lines that fit in `maxRows`. */
+/** Bottom-up selection of the lines that fit in `maxRows` rendered rows. */
 function selectTail(
 	lines: string[],
 	measured: LineRow[],
 	maxRows: number,
 	width: number,
 ): TailSelection {
-	if (maxRows <= 0) return { lines: [], rows: 0 };
+	if (maxRows <= 0) return { lines: [], rows: 0, contentRows: 0 };
 
 	let rows = 0;
+	let contentRows = 0;
 	let start = lines.length;
 	let cutLine = -1;
 	let cutRows = 0;
@@ -488,13 +493,14 @@ function selectTail(
 		// code block that swallows whatever follows it and costs rows the reader did not ask
 		// for, so dropping it keeps the shown text plain and the row count exact.
 		if (measured[i].marker) continue;
-		const rowsHere = measured[i].contentRows;
+		const rowsHere = measured[i].rows;
 		if (rows + rowsHere > maxRows) {
 			cutLine = i;
 			cutRows = measured[i].sliceable ? maxRows - rows : 0;
 			break;
 		}
 		rows += rowsHere;
+		contentRows += measured[i].contentRows;
 		start = i;
 	}
 
@@ -520,19 +526,25 @@ function selectTail(
 			`${prefix.replace(/^\s+/, "")}${body.slice(offset).replace(/^\s+/, "")}`,
 		);
 		rows += cutRows;
+		// A blank line cut in half is still spacing, not reasoning.
+		contentRows += measured[cutLine].contentRows === 0 ? 0 : cutRows;
 	}
 	kept.push(...lines.slice(start));
-	return { lines: kept, rows };
+	return { lines: kept, rows, contentRows };
 }
 
 /**
  * Take the tail of a block that fits in `maxRows` rendered rows.
  *
- * Rows are counted the way pi renders them, so a single long line that the terminal
- * wraps is counted as the several rows it occupies rather than one. When the budget
- * lands in the middle of a line, the front of that line is dropped and the line's own
- * prefix (blockquote border, list marker) is re-emitted, so the visible fragment keeps
- * wrapping at the same width pi would have used.
+ * Rows are counted the way pi renders them: a long line the terminal wraps costs the
+ * several rows it fills, and a blank separator between parts costs its own row too, so
+ * the tail occupies the same height on screen however the paragraphs fall. When the
+ * budget lands in the middle of a line, the front of that line is dropped and the line's
+ * own prefix (blockquote border, list marker) is re-emitted, so the visible fragment
+ * keeps wrapping at the same width pi would have used.
+ *
+ * `hiddenRows` reports the lines of reasoning left out above the tail (blank separators
+ * are not counted as reasoning).
  */
 export function tailByRows(
 	markdown: string,
@@ -542,8 +554,6 @@ export function tailByRows(
 	const trimmed = markdown.replace(/\s+$/, "");
 	const lines = trimmed.split("\n");
 	const measured = measureLines(lines, width);
-	// "Everything fits" is a question about screen rows (blank separators included); the
-	// budget the tail is cut to counts content rows only.
 	const renderedTotal = measured.reduce((rows, line) => rows + line.rows, 0);
 	const contentTotal = measured.reduce(
 		(rows, line) => rows + line.contentRows,
@@ -554,7 +564,7 @@ export function tailByRows(
 	const selection = selectTail(lines, measured, maxRows, width);
 	const tail = selection.lines;
 	// Blank separators that used to sit above the tail are dropped: the hint takes their place.
-	let hiddenRows = contentTotal - selection.rows;
+	let hiddenRows = contentTotal - selection.contentRows;
 	while (tail.length > 0 && tail[0].trim() === "") {
 		hiddenRows += measureLines([tail[0]], width)[0].contentRows;
 		tail.shift();
@@ -565,14 +575,19 @@ export function tailByRows(
 	};
 }
 
+/** Rows the hint line and its blank separator add to the block. */
+const HINT_ROWS = 2;
+
 /**
- * Render a thinking block for display: the last `maxLines` rows with a hint above
- * reporting how many earlier rows were dropped.
+ * Render a thinking block for display: the last rows of the block with a hint above
+ * reporting how many earlier lines were dropped.
  *
- * `maxLines` counts rendered rows when `width` is a positive number — the wrap width pi
- * passes as `availableWidth`, so a long line counts as the several rows it fills — and
- * non-blank source lines otherwise. `maxLines = 0` disables the preview entirely
- * (markdown is returned untouched).
+ * `maxLines` is the height of the whole block, hint included — counted in rendered rows
+ * when `width` is a positive number (the wrap width pi passes as `availableWidth`, so a
+ * long line counts as the several rows it fills) and in source lines otherwise. The block
+ * therefore keeps the same height while it streams. Budgets too small to hold the hint
+ * spend everything on reasoning text instead of showing a bare hint.
+ * `maxLines = 0` disables the preview entirely (markdown is returned untouched).
  */
 export function truncateThinking(
 	markdown: string,
@@ -583,7 +598,13 @@ export function truncateThinking(
 
 	const width =
 		options.width !== undefined && options.width > 0 ? options.width : 0;
-	const { shown: body, hiddenRows } = tailByRows(markdown, maxLines, width);
+	// A block that already fits the whole budget is shown as it is, hint and all.
+	if (countRenderedRows(markdown, width) <= maxLines)
+		return markdown.replace(/\s+$/, "");
+	// A hint only earns its two rows when a line of reasoning still fits under it.
+	const roomForHint = maxLines > HINT_ROWS;
+	const maxRows = roomForHint ? maxLines - HINT_ROWS : maxLines;
+	const { shown: body, hiddenRows } = tailByRows(markdown, maxRows, width);
 
 	let shown = body;
 
@@ -592,7 +613,7 @@ export function truncateThinking(
 	if (fenceCount % 2 === 1) shown += "\n```";
 
 	const parts: string[] = [];
-	if (hiddenRows > 0) {
+	if (roomForHint && hiddenRows > 0) {
 		const unit = hiddenRows === 1 ? "line" : "lines";
 		parts.push(`... (${hiddenRows} earlier ${unit}, ${expandHint()})`);
 	}
@@ -617,7 +638,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerFlag("thinking-preview", {
 		description:
-			"Thinking level for this run: full | preview | hidden | <lines> (default: preview 3)",
+			"Thinking level for this run: full | preview | hidden | <lines> (default: a 3-row preview)",
 		type: "string",
 	});
 
@@ -653,7 +674,7 @@ export default function (pi: ExtensionAPI) {
 
 			if (!raw) {
 				ctx.ui.notify(
-					`추론 표시 단계: ${state.view}${state.view === "preview" ? ` (마지막 ${state.lines}줄)` : ""} — Ctrl+T로 단계 순환 (full → preview → hidden). 변경: /thinking-preview full|preview|hidden|<줄수>`,
+					`추론 표시 단계: ${state.view}${state.view === "preview" ? ` (높이 ${state.lines}줄)` : ""} — Ctrl+T로 단계 순환 (full → preview → hidden). 변경: /thinking-preview full|preview|hidden|<줄수>`,
 				);
 				if (state.view !== "hidden" && hideThinkingBlockEnabled())
 					ctx.ui.notify(hiddenWarning(), "warning");
@@ -678,7 +699,7 @@ export default function (pi: ExtensionAPI) {
 					};
 			applyState(
 				next,
-				`추론 표시 단계: ${next.view}${next.view === "preview" ? ` (마지막 ${next.lines}줄)` : ""} — 지나간 블록까지 즉시 다시 그렸습니다.`,
+				`추론 표시 단계: ${next.view}${next.view === "preview" ? ` (높이 ${next.lines}줄)` : ""} — 지나간 블록까지 즉시 다시 그렸습니다.`,
 			);
 		},
 	});

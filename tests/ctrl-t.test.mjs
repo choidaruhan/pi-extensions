@@ -86,7 +86,10 @@ check(
 	calls.status.length === 0,
 	calls.status.join(", "),
 );
-check("default level previews 3 lines", level(think(30)) === "preview(27)");
+check(
+	"default level previews within 3 rows",
+	level(think(30)) === "preview(29)",
+);
 
 // Ctrl+T walks full -> preview -> hidden -> full; from the default it hides first.
 const press = () => inputHandler("\x14");
@@ -104,7 +107,7 @@ check(
 );
 check(
 	"3rd press returns to the preview",
-	press()?.consume === true && level(think(30)) === "preview(27)",
+	press()?.consume === true && level(think(30)) === "preview(29)",
 );
 check(
 	"each press refreshed the transcript",
@@ -125,7 +128,7 @@ check(
 	inputHandler("\x14abc") === undefined,
 );
 check("alt+t is not consumed", inputHandler("\x1bt") === undefined);
-check("no other key changed the level", level(think(30)) === "preview(27)");
+check("no other key changed the level", level(think(30)) === "preview(29)");
 
 // Answer text must stay pristine on every level.
 for (const messageType of ["assistant", "user"]) {
@@ -139,11 +142,11 @@ for (const messageType of ["assistant", "user"]) {
 // The command mirrors the cycle, including explicit line counts.
 await commands.get("thinking-preview").handler("full", ctx);
 check("command full", level(think(30)) === "full");
-await commands.get("thinking-preview").handler("1", ctx);
-check("command 1 line", level(think(30)) === "preview(29)");
+await commands.get("thinking-preview").handler("5", ctx);
+check("command 5 lines", level(think(30)) === "preview(28)");
 check(
 	"command echoed the level",
-	calls.notify.at(-1).includes("preview (마지막 1줄)"),
+	calls.notify.at(-1).includes("preview (높이 5줄)"),
 	calls.notify.at(-1),
 );
 await commands.get("thinking-preview").handler("hidden", ctx);
@@ -151,19 +154,19 @@ check("command hidden", level(think(30)) === "hidden");
 await commands.get("thinking-preview").handler("preview", ctx);
 check(
 	"command preview keeps the last line count",
-	level(think(30)) === "preview(29)",
+	level(think(30)) === "preview(28)",
 );
 await commands.get("thinking-preview").handler("bogus", ctx);
 check(
 	"command rejects junk",
 	calls.notify.at(-1).startsWith("warning:") &&
-		level(think(30)) === "preview(29)",
+		level(think(30)) === "preview(28)",
 	calls.notify.at(-1),
 );
 await commands.get("thinking-preview").handler("", ctx);
 check(
 	"bare command reports the level",
-	calls.notify.at(-1).includes("preview (마지막 1줄)"),
+	calls.notify.at(-1).includes("preview (높이 5줄)"),
 	calls.notify.at(-1),
 );
 

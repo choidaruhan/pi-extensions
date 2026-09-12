@@ -46,6 +46,9 @@ const check = (name, cond, extra = "") => {
 
 // 1) each N shows a different number of earlier lines, always keeping the newest ones
 const byN = {};
+// Content lines kept by a budget of N rows: with one blank line between lines, k lines cost
+// 2k-1 rows. N=1 has no room for the hint at all (hint + its blank line = 2 rows).
+const HIDDEN = { 1: null, 3: 29, 5: 28 };
 for (const n of [1, 3, 5]) {
 	live = { view: "preview", lines: n };
 	const out = render(make());
@@ -54,10 +57,14 @@ for (const n of [1, 3, 5]) {
 	console.log(`N=${n} -> ${hint}`);
 	check(`N=${n} keeps the newest line`, out.includes("step 30"));
 	check(`N=${n} drops the oldest lines`, !out.includes("step 1:"));
-	check(
-		`N=${n} hint counts ${30 - n} earlier lines`,
-		hint.includes(`${30 - n} earlier lines`),
-	);
+	if (HIDDEN[n] === null) {
+		check(`N=${n} shows no hint`, hint === "no hint");
+	} else {
+		check(
+			`N=${n} hint counts ${HIDDEN[n]} earlier lines`,
+			hint.includes(`${HIDDEN[n]} earlier lines`),
+		);
+	}
 	check(`N=${n} keeps the answer`, out.includes("391"));
 }
 check(
@@ -98,7 +105,7 @@ check(
 );
 check(
 	"pre-refresh render showed the preview",
-	before.includes("25 earlier lines"),
+	before.includes("28 earlier lines"),
 );
 check(
 	"post-refresh render hides the reasoning",

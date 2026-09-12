@@ -39,34 +39,41 @@ check("short block has no hint", !short.includes("earlier line"));
 check("short block is byte-identical", short === think(3));
 
 // 2) a long block shows the tail (most recent reasoning) with the hint above
+// The budget is the height of the whole block, hint and its blank line included, so N=5
+// shows the hint plus two lines of reasoning.
 const long = truncateThinking(think(30), 5);
 const longLines = long.split("\n");
 check(
 	"hint is the first line",
-	longLines[0] === `... (25 earlier lines, ${HINT})`,
+	longLines[0] === `... (28 earlier lines, ${HINT})`,
 	longLines[0],
 );
-check("head lines are dropped", !long.includes("line 25"));
+check("head lines are dropped", !long.includes("line 28"));
 check(
 	"tail lines are kept",
-	long.includes("line 26") && long.includes("line 30"),
+	long.includes("line 29") && long.includes("line 30"),
 );
 check(
 	"the tail is the last line",
 	longLines[longLines.length - 1] === "line 30",
 	longLines[longLines.length - 1],
 );
-check("hint and body separated by a blank line", /\n\nline 26/.test(long));
+check("hint and body separated by a blank line", /\n\nline 29/.test(long));
 check("no blank-line pile-up", !/\n\n\n/.test(long));
 
-// 3) singular wording and zero-line mode
+// 3) singular wording, blank-run trimming, and the fit short-circuit
 check(
 	"singular hint for one dropped line",
-	truncateThinking(think(2), 1) === `... (1 earlier line, ${HINT})\n\nline 2`,
+	truncateThinking("l1\n\n\n\nl2", 3) ===
+		`... (1 earlier line, ${HINT})\n\nl2`,
 );
 check(
 	"blank separators do not leak into the tail",
-	truncateThinking("l1\n\n\nl2", 1) === `... (1 earlier line, ${HINT})\n\nl2`,
+	truncateThinking("l1\n\n\nl2", 3) === `... (1 earlier line, ${HINT})\n\nl2`,
+);
+check(
+	"a block as tall as the budget is left whole",
+	truncateThinking(think(3), 5) === think(3),
 );
 check(
 	"maxLines=0 returns the markdown untouched",
@@ -93,7 +100,7 @@ process.env.PI_THINKING_PREVIEW_HINT = "press X to expand";
 check(
 	"env overrides the hint",
 	expandHint() === "press X to expand" &&
-		truncateThinking(think(3), 1).includes("press X to expand"),
+		truncateThinking(think(30), 3).includes("press X to expand"),
 );
 delete process.env.PI_THINKING_PREVIEW_HINT;
 process.env.PI_THINKING_HIDDEN_LABEL = "*thinking*";
@@ -102,7 +109,7 @@ delete process.env.PI_THINKING_HIDDEN_LABEL;
 check("default hidden label matches pi's", hiddenLabel() === "Thinking...");
 
 // 6) transformer wiring: only thinking parts are touched, live state is read
-const state = { value: { view: "preview", lines: 1 } };
+const state = { value: { view: "preview", lines: 3 } };
 const transformer = createThinkingTransformer(() => state.value);
 const ANSWER = "Took nothing here, just the answer.";
 check(
@@ -128,13 +135,23 @@ check(
 			isStreaming: false,
 		}),
 );
-state.value = { view: "preview", lines: 4 };
+state.value = { view: "preview", lines: 5 };
+const five = transformer(think(30), {
+	messageType: "assistant-thinking",
+	isStreaming: false,
+});
 check(
 	"the transformer reads the line count live",
-	transformer(think(30), {
-		messageType: "assistant-thinking",
-		isStreaming: false,
-	}).includes("26 earlier lines"),
+	five.includes("28 earlier lines") && five.includes("line 29"),
+);
+state.value = { view: "preview", lines: 7 };
+const seven = transformer(think(30), {
+	messageType: "assistant-thinking",
+	isStreaming: false,
+});
+check(
+	"a larger budget keeps more reasoning",
+	seven.includes("27 earlier lines") && seven.includes("line 28"),
 );
 
 // 8) the three display levels
