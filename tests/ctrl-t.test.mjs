@@ -82,9 +82,9 @@ check(
 	typeof inputHandler === "function",
 );
 check(
-	"session_start reports the default level",
-	calls.status.at(-1) === "thinking-preview=thinking:preview(3)",
-	calls.status.at(-1),
+	"session_start sets no status line",
+	calls.status.length === 0,
+	calls.status.join(", "),
 );
 check("default level previews 3 lines", level(think(30)) === "preview(27)");
 
@@ -112,8 +112,9 @@ check(
 	`${calls.refresh} refreshes`,
 );
 check(
-	"each press updated the footer status",
-	calls.status.at(-1) === "thinking-preview=thinking:preview(3)",
+	"no press sets a status line either",
+	calls.status.length === 0,
+	calls.status.join(", "),
 );
 
 // Everything that is not ctrl+t must reach pi untouched.

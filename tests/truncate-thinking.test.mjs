@@ -74,7 +74,10 @@ check(
 );
 
 // 4) an unclosed code fence in the tail is closed
-const fenced = truncateThinking("```js\ncode 1\ncode 2\ncode 3\ncode 4\n```", 2);
+const fenced = truncateThinking(
+	"```js\ncode 1\ncode 2\ncode 3\ncode 4\n```",
+	2,
+);
 check(
 	"dangling fence is closed",
 	fenced.endsWith("code 4\n```\n```"),

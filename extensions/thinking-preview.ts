@@ -216,13 +216,6 @@ function hiddenWarning(): string {
 	return "thinking-preview: hideThinkingBlock=true 라 추론 블록이 통째로 접혀 이 확장이 그릴 수 없습니다. ~/.pi/agent/settings.json 에서 hideThinkingBlock을 false로 바꾸고 /reload 하세요.";
 }
 
-/** Which level the transcript is showing, for the status line. */
-function statusText(state: ThinkingState): string {
-	if (state.view === "full") return "thinking:full";
-	if (state.view === "hidden") return "thinking:hidden";
-	return `thinking:preview(${state.lines})`;
-}
-
 /**
  * Force every already-rendered assistant message to re-render.
  *
@@ -273,9 +266,7 @@ export function isThinkingContext(context: {
  * the response body. It is also what makes this factory (rather than a raw arrow
  * function) the thing tests exercise.
  */
-export function createThinkingTransformer(
-	getState: () => ThinkingState,
-): (
+export function createThinkingTransformer(getState: () => ThinkingState): (
 	markdown: string,
 	context: {
 		messageType?: string;
@@ -614,7 +605,6 @@ export function truncateThinking(
 interface UiContext {
 	ui: {
 		notify: (message: string, type?: "info" | "warning" | "error") => void;
-		setStatus: (key: string, text: string | undefined) => void;
 		setHiddenThinkingLabel: (label?: string) => void;
 		onTerminalInput: (
 			handler: (data: string) => { consume?: boolean; data?: string } | undefined,
@@ -695,7 +685,6 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ui = ctx.ui;
-		ctx.ui.setStatus("thinking-preview", statusText(state));
 		if (state.view !== "hidden" && hideThinkingBlockEnabled())
 			ctx.ui.notify(hiddenWarning(), "warning");
 
@@ -710,7 +699,6 @@ export default function (pi: ExtensionAPI) {
 			state = next;
 			saveState(state);
 			refreshTranscript(ctx.ui);
-			ctx.ui.setStatus("thinking-preview", statusText(state));
 			return { consume: true };
 		});
 	});

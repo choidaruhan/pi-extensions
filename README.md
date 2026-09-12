@@ -60,8 +60,8 @@ so the suites survive pi version bumps, and links pi's bundled `@earendil-works/
 
 `tools/pty-keys.py` is the heavier option: it drives pi's real TUI over a pty, sends arbitrary
 keystrokes, and prints the rendered screen. Use it for anything that depends on pi's input dispatch
-(Ctrl+T is the current case) — its effect is visible in the footer status line, in
-`~/.pi/agent/thinking-preview.json`, and in `~/.pi/agent/settings.json`.
+(Ctrl+T is the current case) — its effect is visible in `~/.pi/agent/thinking-preview.json`
+and `~/.pi/agent/settings.json`.
 
 ## New machine
 
@@ -85,6 +85,8 @@ with it the `hideThinkingBlock` write to `settings.json` — from ever running. 
   silently does nothing; the extension warns at session start and `/thinking-preview` reports it.
 - The `Took`/`Elapsed` footer was dropped (2026): thinking blocks are shown as they are, with no measured
   duration. Nothing in the extension counts time any more.
+- The footer status line (`thinking:preview(3)`) was dropped too (2026): the current level is visible from
+  `/thinking-preview` and from what the blocks look like, and nowhere else.
 - `lines` and `view` are independent: hiding the blocks keeps the tail size, so going back to
   `preview` restores the N you had.
 - `lines` counts **rendered rows**, not source lines: a line longer than the content width is counted as
