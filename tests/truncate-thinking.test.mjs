@@ -64,8 +64,7 @@ check("no blank-line pile-up", !/\n\n\n/.test(long));
 // 3) singular wording, blank-run trimming, and the fit short-circuit
 check(
 	"singular hint for one dropped line",
-	truncateThinking("l1\n\n\n\nl2", 3) ===
-		`... (1 earlier line, ${HINT})\n\nl2`,
+	truncateThinking("l1\n\n\n\nl2", 3) === `... (1 earlier line, ${HINT})\n\nl2`,
 );
 check(
 	"blank separators do not leak into the tail",
@@ -199,7 +198,10 @@ check(
 	"level order is full -> preview -> hidden",
 	THINKING_VIEWS.join(",") === "full,preview,hidden",
 );
-check("default state is the 3-line preview", DEFAULT_STATE.view === "preview");
+check(
+	"default state is the 5-row preview",
+	DEFAULT_STATE.view === "preview" && DEFAULT_STATE.lines === 5,
+);
 const cycle = [DEFAULT_STATE.view];
 for (let i = 0; i < 3; i++) cycle.push(nextView(cycle[cycle.length - 1]));
 check(
@@ -211,12 +213,12 @@ const spec = (raw) => {
 	const parsed = parseViewSpec(raw);
 	return parsed === null ? "null" : `${parsed.view}:${parsed.lines}`;
 };
-check("'full' -> full", spec("full") === "full:3");
-check("'hidden' -> hidden", spec("hidden") === "hidden:3");
-check("'off' -> full", spec("off") === "full:3");
-check("'on' -> preview", spec("on") === "preview:3");
+check("'full' -> full", spec("full") === "full:5");
+check("'hidden' -> hidden", spec("hidden") === "hidden:5");
+check("'off' -> full", spec("off") === "full:5");
+check("'on' -> preview", spec("on") === "preview:5");
 check("'5' -> preview 5", spec("5") === "preview:5");
-check("'0' -> hidden", spec("0") === "hidden:3");
+check("'0' -> hidden", spec("0") === "hidden:5");
 check("'999' clamps to 500", spec("999") === "preview:500");
 check("'abc' is rejected", spec("abc") === "null");
 check("'' is rejected", spec("") === "null");

@@ -87,8 +87,8 @@ check(
 	calls.status.join(", "),
 );
 check(
-	"default level previews within 3 rows",
-	level(think(30)) === "preview(29)",
+	"default level previews within 5 rows",
+	level(think(30)) === "preview(28)",
 );
 
 // Ctrl+T walks full -> preview -> hidden -> full; from the default it hides first.
@@ -107,7 +107,7 @@ check(
 );
 check(
 	"3rd press returns to the preview",
-	press()?.consume === true && level(think(30)) === "preview(29)",
+	press()?.consume === true && level(think(30)) === "preview(28)",
 );
 check(
 	"each press refreshed the transcript",
@@ -128,7 +128,7 @@ check(
 	inputHandler("\x14abc") === undefined,
 );
 check("alt+t is not consumed", inputHandler("\x1bt") === undefined);
-check("no other key changed the level", level(think(30)) === "preview(29)");
+check("no other key changed the level", level(think(30)) === "preview(28)");
 
 // Answer text must stay pristine on every level.
 for (const messageType of ["assistant", "user"]) {

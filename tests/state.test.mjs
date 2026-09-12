@@ -37,11 +37,11 @@ const initial = (env = {}) => show(resolveInitialState(env));
 
 if (mode === "write") {
 	rmSync(statePath, { force: true });
-	check("no state file -> built-in default", initial() === "preview:3");
+	check("no state file -> built-in default", initial() === "preview:5");
 	check("no state file -> loadSavedState is null", loadSavedState() === null);
 	check(
 		"env view wins over the default",
-		initial({ PI_THINKING_PREVIEW_VIEW: "full" }) === "full:3",
+		initial({ PI_THINKING_PREVIEW_VIEW: "full" }) === "full:5",
 	);
 	check(
 		"env lines wins over the default",
@@ -49,11 +49,11 @@ if (mode === "write") {
 	);
 	check(
 		"env lines=0 means hidden",
-		initial({ PI_THINKING_PREVIEW_LINES: "0" }) === "hidden:3",
+		initial({ PI_THINKING_PREVIEW_LINES: "0" }) === "hidden:5",
 	);
 	check(
 		"junk env is ignored",
-		initial({ PI_THINKING_PREVIEW_VIEW: "nope" }) === "preview:3",
+		initial({ PI_THINKING_PREVIEW_VIEW: "nope" }) === "preview:5",
 	);
 
 	saveState({ view: "hidden", lines: 7 });
@@ -77,7 +77,7 @@ if (mode === "write") {
 		show(loadSavedState()) === "preview:5",
 	);
 	writeFileSync(statePath, `${JSON.stringify({ previewLines: 0 })}\n`, "utf8");
-	check("legacy previewLines 0 -> full", show(loadSavedState()) === "full:3");
+	check("legacy previewLines 0 -> full", show(loadSavedState()) === "full:5");
 	writeFileSync(statePath, "{ not json", "utf8");
 	check("corrupt state file falls back", loadSavedState() === null);
 

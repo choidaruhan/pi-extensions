@@ -50,7 +50,11 @@ import {
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const DEFAULT_PREVIEW_LINES = 3;
+/**
+ * Height of the default preview block in rendered rows: the hint, its blank separator and
+ * two rows of reasoning. Budgets below 3 leave no room for the hint (see truncateThinking).
+ */
+const DEFAULT_PREVIEW_LINES = 5;
 const MAX_PREVIEW_LINES = 500;
 
 /** Display levels, in cycle order: Ctrl+T walks full -> preview -> hidden -> full. */
@@ -638,7 +642,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerFlag("thinking-preview", {
 		description:
-			"Thinking level for this run: full | preview | hidden | <lines> (default: a 3-row preview)",
+			"Thinking level for this run: full | preview | hidden | <lines> (default: a 5-row preview)",
 		type: "string",
 	});
 
