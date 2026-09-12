@@ -3,8 +3,18 @@
 //
 // Order: $PI_ROOT -> the `pi` on PATH -> Homebrew Cellar scan (newest first).
 import { execSync } from "node:child_process";
-import { existsSync, readdirSync, realpathSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	realpathSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 function candidateRoots() {
 	const roots = [];
@@ -63,3 +73,27 @@ export function findPiRoot() {
 
 export const PI_ROOT = findPiRoot();
 export const DIST = join(PI_ROOT, "dist");
+
+/**
+ * The extension imports "@earendil-works/pi-tui" by bare specifier; pi's own
+ * loader resolves it against its bundled copy. Plain node needs a node_modules
+ * entry, so point one at that same copy — identical code, no vendoring.
+ */
+export function linkPiTui() {
+	const target = join(PI_ROOT, "node_modules", "@earendil-works", "pi-tui");
+	if (!existsSync(join(target, "dist", "index.js"))) return null;
+	const dir = join(REPO_ROOT, "node_modules", "@earendil-works");
+	const link = join(dir, "pi-tui");
+	try {
+		mkdirSync(dir, { recursive: true });
+		rmSync(link, { force: true });
+		symlinkSync(target, link, "dir");
+	} catch (error) {
+		console.log(`pi-tui link skipped: ${error.message}`);
+		return null;
+	}
+	return link;
+}
+
+/** Created on import so every suite can load the extension as-is. */
+export const PI_TUI_LINK = linkPiTui();

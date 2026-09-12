@@ -11,13 +11,15 @@ step() {
 	"$@" || status=1
 }
 
-step "truncateThinking unit" node tests/truncate-thinking.test.mjs
+step "truncateThinking unit + level specs" node tests/truncate-thinking.test.mjs
 step "TUI render (real component)" node tests/render.test.mjs
-step "N sweep 1/3/5" node tests/n-sweep.test.mjs
-step "N persistence (state file)" bash -c 'set -e
+step "level/N sweep" node tests/n-sweep.test.mjs
+step "Ctrl+T wiring (real matchesKey)" node tests/ctrl-t.test.mjs
+step "state persistence" bash -c 'set -e
   node tests/state.test.mjs write
   node tests/state.test.mjs read
-  PI_THINKING_PREVIEW_LINES=9 node tests/state.test.mjs read'
+  PI_THINKING_PREVIEW_VIEW=full node tests/state.test.mjs env
+  PI_THINKING_PREVIEW_LINES=2 node tests/state.test.mjs env'
 
 printf '\n%s\n' "$([ "$status" -eq 0 ] && echo 'ALL SUITES PASS' || echo 'SOME SUITES FAILED')"
 exit "$status"
