@@ -14,6 +14,7 @@ step() {
 step "truncateThinking unit + level specs" node tests/truncate-thinking.test.mjs
 step "TUI render (real component)" node tests/render.test.mjs
 step "level/N sweep" node tests/n-sweep.test.mjs
+step "row accounting vs pi's renderer" node tests/rows.test.mjs
 step "Ctrl+T wiring (real matchesKey)" node tests/ctrl-t.test.mjs
 step "state persistence" bash -c 'set -e
   node tests/state.test.mjs write

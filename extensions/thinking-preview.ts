@@ -5,19 +5,22 @@
  * cycles them with Ctrl+T:
  *
  *   1. full     every line of the block (plus the `Took <duration>` footer)
- *   2. preview  the *tail* of the block: the last N lines with a
- *               `... (X earlier lines, ctrl+t)` hint above (default level)
+ *   2. preview  the *tail* of the block: the last N rendered rows of reasoning with a
+ *               `... (X earlier lines, ctrl+t)` hint above (default level). N counts rows
+ *               as they land on screen, so a line the terminal wraps costs the several rows
+ *               it fills and a budget that ends mid-line shows the tail of that line; blank
+ *               separators between parts are free.
  *   3. hidden   a single muted `Thinking...` line, nothing else
  *
  * Defaults:
- *   level = preview, N = 3 lines
+ *   level = preview, N = 3 rows
  *   Override at load time with PI_THINKING_PREVIEW_VIEW=<full|preview|hidden>
  *   and/or PI_THINKING_PREVIEW_LINES=<n>, or per run with --thinking-preview=<value>.
  *   Hint text: PI_THINKING_PREVIEW_HINT="<text>", hidden label: PI_THINKING_HIDDEN_LABEL.
  *
  * Commands:
  *   /thinking-preview            show the current level
- *   /thinking-preview <n>        preview the last <n> lines (1-500)
+ *   /thinking-preview <n>        preview the last <n> rows (1-500)
  *   /thinking-preview full       show whole thinking blocks (alias: off, all)
  *   /thinking-preview preview    back to the N-line preview (alias: on)
  *   /thinking-preview hidden     hide thinking blocks (alias: hide)
@@ -43,7 +46,11 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { matchesKey } from "@earendil-works/pi-tui";
+import {
+	matchesKey,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -359,7 +366,12 @@ export function createThinkingTransformer(
 	) => number | null = createThinkingTiming(),
 ): (
 	markdown: string,
-	context: { messageType?: string; kind?: string; isStreaming: boolean },
+	context: {
+		messageType?: string;
+		kind?: string;
+		isStreaming: boolean;
+		availableWidth?: number;
+	},
 ) => string {
 	return (markdown, context) => {
 		if (!isThinkingContext(context)) return markdown;
@@ -381,56 +393,318 @@ export function createThinkingTransformer(
 		return truncateThinking(markdown, state.lines, {
 			durationMs,
 			isStreaming: context.isStreaming,
+			// pi passes the markdown content width, which is exactly the wrap width it
+			// renders the transformer's output with, so row counts here match the screen.
+			width: context.availableWidth,
 		});
 	};
 }
 
+/** Columns pi spends on a blockquote border ("│ ") per nesting level. */
+const QUOTE_COLUMNS = 2;
+/** Columns pi spends per list nesting level (its renderer indents 4 per depth). */
+const LIST_INDENT_COLUMNS = 4;
+
+const QUOTE_PREFIX = /^\s*>\s?/;
+const LIST_PREFIX = /^(\s*)([-+*]|\d{1,9}[.)])([ \t]+)/;
+
+export interface LinePrefix {
+	/** Markdown that must stay in front of the content when a line is cut mid-way. */
+	prefix: string;
+	/** Content after that prefix, which is what pi actually wraps. */
+	body: string;
+	/** Columns the prefix eats from the wrap width. */
+	columns: number;
+}
+
 /**
- * Render a thinking block for display: the last `maxLines` non-blank lines, a hint
- * above reporting how many earlier lines were dropped, and (when known) a
- * `Took`/`Elapsed` footer. Blank lines used as paragraph separators travel with the
- * lines around them, so the budget matches what a reader counts on screen.
- * `maxLines = 0` disables the preview entirely (markdown is returned untouched).
+ * Split a source line into the markdown pi renders in front of wrapped content
+ * (blockquote borders, list indentation and marker) and the content itself.
+ *
+ * pi's markdown renderer wraps an item's content at `width - prefixWidth` and then
+ * puts the prefix back in front of every wrapped row (markdown.js:427 for quotes,
+ * markdown.js:591-615 for lists), so the same subtraction has to happen here for a
+ * row count to match what is on screen. `depth` is the list nesting level the caller
+ * resolved for this line (0 = top level).
+ */
+export function splitLinePrefix(line: string, depth = 0): LinePrefix {
+	let prefix = "";
+	let columns = 0;
+	let rest = line;
+	for (;;) {
+		const quote = QUOTE_PREFIX.exec(rest);
+		if (quote === null) break;
+		prefix += quote[0];
+		columns += QUOTE_COLUMNS;
+		rest = rest.slice(quote[0].length);
+	}
+	const list = LIST_PREFIX.exec(rest);
+	if (list !== null) {
+		prefix += rest.slice(0, list[0].length);
+		columns += depth * LIST_INDENT_COLUMNS + visibleWidth(`${list[2]} `);
+		rest = rest.slice(list[0].length);
+		// pi adds a task marker in front of the content of checkbox items (markdown.js:601).
+		const task = /^\[[ xX]\][ \t]+/.exec(rest);
+		if (task !== null) {
+			prefix += task[0];
+			columns += visibleWidth(task[0]);
+			rest = rest.slice(task[0].length);
+		}
+	}
+	return { prefix, body: rest, columns };
+}
+
+export interface LineRow {
+	/** Rows this line occupies on screen once pi wraps it (a blank line still renders one). */
+	rows: number;
+	/** Rows this line costs the preview budget: 0 for the blank separators between parts. */
+	contentRows: number;
+	/** Whether the line's own text may be cut mid-way (false for fence markers). */
+	sliceable: boolean;
+	/** List nesting level pi renders this line at (0 = not in a list). */
+	depth: number;
+	/** Inside a fenced code block (markers included). */
+	fenced: boolean;
+	/** The line is a ``` / ~~~ fence marker (never shown on its own). */
+	marker: boolean;
+}
+
+const FENCE = /^\s*(```|~~~)/;
+/** pi renders a fence marker row plus one empty row after it. */
+const FENCE_OPEN_ROWS = 2;
+
+/**
+ * Measure how many rows each source line occupies at `width`.
+ *
+ * `width <= 0` means "no wrapping information": every non-blank line counts as one row,
+ * which is the line-based behaviour of earlier versions. List nesting is resolved the way
+ * markdown does it — relative to the enclosing item's content column — so `  - a` inside a
+ * top-level item is one level deep, exactly as pi renders it.
+ */
+export function measureLines(lines: string[], width: number): LineRow[] {
+	const levels: { depth: number; content: number }[] = [];
+	let inFence = false;
+
+	return lines.map((line) => {
+		const blank = line.trim() === "";
+		if (!(width > 0))
+			return {
+				rows: blank ? 0 : 1,
+				contentRows: blank ? 0 : 1,
+				sliceable: false,
+				depth: 0,
+				fenced: false,
+				marker: false,
+			};
+
+		if (FENCE.test(line)) {
+			levels.length = 0;
+			if (!inFence) {
+				inFence = true;
+				return {
+					rows: FENCE_OPEN_ROWS,
+					contentRows: FENCE_OPEN_ROWS,
+					sliceable: false,
+					depth: 0,
+					fenced: true,
+					marker: true,
+				};
+			}
+			inFence = false;
+			return {
+				rows: 1,
+				contentRows: 1,
+				sliceable: false,
+				depth: 0,
+				fenced: true,
+				marker: true,
+			};
+		}
+		if (inFence) {
+			const rows = wrapTextWithAnsi(line, width).length;
+			return {
+				rows,
+				contentRows: rows,
+				sliceable: true,
+				depth: 0,
+				fenced: true,
+				marker: false,
+			};
+		}
+
+		const list = LIST_PREFIX.exec(line);
+		let depth = 0;
+		if (list !== null) {
+			const indent = list[1].length;
+			while (levels.length > 0 && levels[levels.length - 1].content > indent)
+				levels.pop();
+			depth = levels.length === 0 ? 0 : levels[levels.length - 1].depth + 1;
+			levels.push({ depth, content: indent + list[0].length });
+		} else if (line.trim() !== "") {
+			levels.length = 0;
+		}
+
+		const { body, columns } = splitLinePrefix(line, depth);
+		const rows = blank
+			? 1
+			: wrapTextWithAnsi(body, Math.max(1, width - columns)).length;
+		return {
+			rows,
+			// Blank separators are structural: they are free in the preview budget, so a
+			// budget of N shows N lines of reasoning rather than N screen rows of spacing.
+			contentRows: blank ? 0 : rows,
+			sliceable: true,
+			depth,
+			fenced: false,
+			marker: false,
+		};
+	});
+}
+
+/** Rows a whole block occupies at `width`, i.e. the number of lines a reader counts. */
+export function countRenderedRows(markdown: string, width: number): number {
+	const lines = markdown.replace(/\s+$/, "").split("\n");
+	return measureLines(lines, width).reduce((rows, line) => rows + line.rows, 0);
+}
+
+interface ShownTail {
+	/** Markdown for the tail that fits the budget. */
+	shown: string;
+	/** Rows (or, without a width, lines) left out above the tail. */
+	hiddenRows: number;
+}
+
+interface TailSelection {
+	lines: string[];
+	/** Rows of the original block the selection keeps (blank separators not counted). */
+	rows: number;
+}
+
+/** Bottom-up selection of the lines that fit in `maxRows`. */
+function selectTail(
+	lines: string[],
+	measured: LineRow[],
+	maxRows: number,
+	width: number,
+): TailSelection {
+	if (maxRows <= 0) return { lines: [], rows: 0 };
+
+	let rows = 0;
+	let start = lines.length;
+	let cutLine = -1;
+	let cutRows = 0;
+	for (let i = lines.length - 1; i >= 0; i--) {
+		// Fence markers are never part of the shown tail. On its own a marker renders as a
+		// code block that swallows whatever follows it and costs rows the reader did not ask
+		// for, so dropping it keeps the shown text plain and the row count exact.
+		if (measured[i].marker) continue;
+		const rowsHere = measured[i].contentRows;
+		if (rows + rowsHere > maxRows) {
+			cutLine = i;
+			cutRows = measured[i].sliceable ? maxRows - rows : 0;
+			break;
+		}
+		rows += rowsHere;
+		start = i;
+	}
+
+	const kept: string[] = [];
+	if (cutLine >= 0 && cutRows > 0) {
+		const { prefix, body, columns } = splitLinePrefix(
+			lines[cutLine],
+			measured[cutLine].depth,
+		);
+		const segments = wrapTextWithAnsi(body, Math.max(1, width - columns));
+		// Walk the dropped segments through the source so the cut lands exactly where the
+		// wrapped rows split: each row break swallows a space, so column arithmetic alone
+		// would leave the kept text too long.
+		let offset = 0;
+		for (let i = 0; i < segments.length - cutRows; i++) {
+			const at = body.indexOf(segments[i], offset);
+			if (at < 0) break;
+			offset = at + segments[i].length;
+		}
+		// Re-emit the marker, but without its indentation: a nested item rendered on its own
+		// would be parsed as a code block instead of a list item.
+		kept.push(`${prefix.replace(/^\s+/, "")}${body.slice(offset).replace(/^\s+/, "")}`);
+		rows += cutRows;
+	}
+	kept.push(...lines.slice(start));
+	return { lines: kept, rows };
+}
+
+/**
+ * Take the tail of a block that fits in `maxRows` rendered rows.
+ *
+ * Rows are counted the way pi renders them, so a single long line that the terminal
+ * wraps is counted as the several rows it occupies rather than one. When the budget
+ * lands in the middle of a line, the front of that line is dropped and the line's own
+ * prefix (blockquote border, list marker) is re-emitted, so the visible fragment keeps
+ * wrapping at the same width pi would have used.
+ */
+export function tailByRows(
+	markdown: string,
+	maxRows: number,
+	width: number,
+): ShownTail {
+	const trimmed = markdown.replace(/\s+$/, "");
+	const lines = trimmed.split("\n");
+	const measured = measureLines(lines, width);
+	// "Everything fits" is a question about screen rows (blank separators included); the
+	// budget the tail is cut to counts content rows only.
+	const renderedTotal = measured.reduce((rows, line) => rows + line.rows, 0);
+	const contentTotal = measured.reduce((rows, line) => rows + line.contentRows, 0);
+	if (renderedTotal <= maxRows) return { shown: trimmed, hiddenRows: 0 };
+
+	const selection = selectTail(lines, measured, maxRows, width);
+	const tail = selection.lines;
+	// Blank separators that used to sit above the tail are dropped: the hint takes their place.
+	let hiddenRows = contentTotal - selection.rows;
+	while (tail.length > 0 && tail[0].trim() === "") {
+		hiddenRows += measureLines([tail[0]], width)[0].contentRows;
+		tail.shift();
+	}
+	return {
+		shown: tail.join("\n").replace(/\s+$/, ""),
+		hiddenRows,
+	};
+}
+
+/**
+ * Render a thinking block for display: the last `maxLines` rows, a hint above
+ * reporting how many earlier rows were dropped, and (when known) a `Took`/`Elapsed`
+ * footer.
+ *
+ * `maxLines` counts rendered rows when `width` is a positive number — the wrap width pi
+ * passes as `availableWidth`, so a long line counts as the several rows it fills — and
+ * non-blank source lines otherwise. `maxLines = 0` disables the preview entirely
+ * (markdown is returned untouched).
  */
 export function truncateThinking(
 	markdown: string,
 	maxLines: number,
-	options: { durationMs?: number | null; isStreaming?: boolean } = {},
+	options: {
+		durationMs?: number | null;
+		isStreaming?: boolean;
+		width?: number;
+	} = {},
 ): string {
 	if (maxLines <= 0) return markdown;
 
-	const lines = markdown.replace(/\s+$/, "").split("\n");
-	const totalLines = lines.filter((line) => line.trim() !== "").length;
+	const width = options.width !== undefined && options.width > 0 ? options.width : 0;
+	const { shown: body, hiddenRows } = tailByRows(markdown, maxLines, width);
 
-	let cutIndex = 0;
-	if (totalLines > maxLines) {
-		let seen = 0;
-		for (let i = lines.length - 1; i >= 0; i--) {
-			if (lines[i].trim() === "") continue;
-			seen++;
-			if (seen === maxLines) {
-				cutIndex = i;
-				break;
-			}
-		}
-	}
-
-	const tail = lines.slice(cutIndex);
-	// Drop separators that used to sit above the tail: the hint takes their place.
-	while (tail.length > 0 && tail[0].trim() === "") tail.shift();
-
-	const earlier = totalLines - tail.filter((line) => line.trim() !== "").length;
-	let shown = tail.join("\n").replace(/\s+$/, "");
+	let shown = body;
 
 	// A dangling code fence would swallow the footer (and look broken), so close it.
 	const fenceCount = (shown.match(/^\s*```/gm) ?? []).length;
 	if (fenceCount % 2 === 1) shown += "\n```";
 
 	const parts: string[] = [];
-	if (earlier > 0)
-		parts.push(
-			`... (${earlier} earlier ${earlier === 1 ? "line" : "lines"}, ${expandHint()})`,
-		);
+	if (hiddenRows > 0) {
+		const unit = hiddenRows === 1 ? "line" : "lines";
+		parts.push(`... (${hiddenRows} earlier ${unit}, ${expandHint()})`);
+	}
 	if (shown !== "") parts.push(shown);
 	const footer = thinkingFooter(options);
 	if (footer !== null) parts.push(footer);
