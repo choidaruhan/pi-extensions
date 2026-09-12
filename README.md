@@ -7,7 +7,7 @@ loaded into pi through symlinks from `~/.pi/agent/extensions/`.
 
 | Path | What it does |
 | --- | --- |
-| `extensions/thinking-preview.ts` | Gives `Thinking…` blocks three display levels and cycles them with **Ctrl+T**: `full` (whole block), `preview` (the *tail* of the block — a `... (X earlier lines, ctrl+t to cycle)` hint row plus the most recent reasoning, together exactly **N rendered rows tall**, so a long line that the terminal wraps counts as the several rows it fills and blank separators are dropped rather than counted), `hidden` (one muted `Thinking…` line). Command `/thinking-preview [n\|full\|preview\|hidden]`, flag `--thinking-preview <value>`, env `PI_THINKING_PREVIEW_VIEW` / `PI_THINKING_PREVIEW_LINES`, overrides `PI_THINKING_PREVIEW_HINT` and `PI_THINKING_HIDDEN_LABEL`. The level is persisted to `~/.pi/agent/thinking-preview.json`, so `/reload` and new sessions keep it. |
+| `extensions/thinking-preview.ts` | Gives `Thinking…` blocks three display levels and cycles them with **Ctrl+T**: `full` (whole block), `preview` (the *tail* of the block — a `... (X earlier lines, ctrl+t to cycle)` hint row plus the most recent reasoning, with the hint sitting **above N rendered rows of reasoning** and never charged to the budget, so a long line that the terminal wraps counts as the several rows it fills and blank separators are dropped rather than counted), `hidden` (one muted `Thinking…` line). Command `/thinking-preview [n\|full\|preview\|hidden]`, flag `--thinking-preview <value>`, env `PI_THINKING_PREVIEW_VIEW` / `PI_THINKING_PREVIEW_LINES`, overrides `PI_THINKING_PREVIEW_HINT` and `PI_THINKING_HIDDEN_LABEL`. The level is persisted to `~/.pi/agent/thinking-preview.json`, so `/reload` and new sessions keep it. |
 | `extensions/web-search-summary-model.ts` | Keeps `web-search.json` → `summaryModel` pointed at the active pi model. Opt-in: does nothing unless that file has `"summaryModelAuto": true`. |
 
 Not in this repo: `~/.pi/agent/extensions/herdr-agent-state.ts`, which the `herdr` tool installs and
@@ -48,11 +48,11 @@ PI_OFFLINE=1 tools/pty-keys.py 14 6 2 -- pi --no-approve --no-extensions \
 `./run-tests.sh` runs six suites with plain `node` (Node ≥ 23 strips TypeScript natively):
 
 - `tests/truncate-thinking.test.mjs` — tail selection, hint formatting, the three levels, level-spec parsing and the cycle order
-- `tests/render.test.mjs` — renders pi's real `AssistantMessageComponent` through the extension's own transformer, per level, and asserts the rendered block is exactly N rows tall across five block shapes, four widths and N = 1–12
+- `tests/render.test.mjs` — renders pi's real `AssistantMessageComponent` through the extension's own transformer, per level, and asserts the rendered block is exactly N reasoning rows plus the hint's own rows across five block shapes, four widths and N = 1–12
 - `tests/n-sweep.test.mjs` — N = 1/3/5, level changes on a live component, and pi's own hidden-thinking path
 - `tests/ctrl-t.test.mjs` — the extension's real `session_start` handler, the real `matchesKey`, Ctrl+T consumption, `/thinking-preview`, and handler stacking across sessions
 - `tests/state.test.mjs` — level persistence, precedence (flag > env > saved file > default), and legacy state files
-- `tests/rows.test.mjs` — row accounting checked against pi's real markdown renderer: whole-block counts for prose, CJK, lists, quotes and fences, plus the preview budget never exceeding N rendered rows (the reported bug: one long line previewed as one row)
+- `tests/rows.test.mjs` — row accounting checked against pi's real markdown renderer: whole-block counts for prose, CJK, lists, quotes and fences, plus the preview *tail* never exceeding N rendered rows (the reported bug: one long line previewed as one row)
 
 `tests/pi-root.mjs` locates the installed pi package (`$PI_ROOT`, then Homebrew Cellar, then npm `-g`)
 so the suites survive pi version bumps, and links pi's bundled `@earendil-works/pi-tui` into
@@ -89,12 +89,13 @@ with it the `hideThinkingBlock` write to `settings.json` — from ever running. 
   `/thinking-preview` and from what the blocks look like, and nowhere else.
 - `lines` and `view` are independent: hiding the blocks keeps the tail size, so going back to
   `preview` restores the N you had.
-- `lines` is the **height of the whole block**: `preview 5` shows the hint row plus four rows of
-  reasoning, so the thinking area stays the same height while the block streams. The hint is charged the
-  rows it really occupies (it wraps on a narrow preview), so the block is exactly N rows tall.
+- `lines` is how many rows of **reasoning** the preview shows: `preview 5` shows five rows of reasoning, and the
+  `... (X earlier lines…)` hint sits on top of them without being charged to the budget (it costs the rows
+  it really occupies when it wraps on a narrow preview), so the block is N rows plus the hint. A block
+  shorter than N is shown whole, hint and all.
 - Blank separator lines never enter the tail: they are dropped rather than charged, so every one of the N
-  rows is a row of reasoning instead of spacing. A budget too small to hold the hint shows reasoning text
-  instead of a bare hint.
+  rows is a row of reasoning instead of spacing, and even a one-row budget still shows a row of reasoning
+  under its hint.
 - Within that budget `lines` counts **rendered rows**, not source lines: a line longer than the content
   width is counted as the several rows it wraps to, and a preview whose budget lands in the middle of such
   a line shows the *tail* of that line, re-emitted one source line per row so it wraps at the same

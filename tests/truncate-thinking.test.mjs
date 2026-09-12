@@ -39,20 +39,20 @@ check("short block has no hint", !short.includes("earlier line"));
 check("short block is byte-identical", short === think(3));
 
 // 2) a long block shows the tail (most recent reasoning) with the hint above
-// The budget is the height of the whole block: the hint row plus N - 1 rows of reasoning.
-// N=5 therefore shows the hint and the last four reasoning lines, and no blank rows: every
-// row the block occupies is a row of text the reader asked for.
+// N is how many rows of reasoning the reader gets; the hint sits on top of them and is not
+// charged to the budget. N=5 therefore shows five reasoning lines plus the hint, and no blank
+// rows: every row the block occupies is a row of text the reader asked for.
 const long = truncateThinking(think(30), 5);
 const longLines = long.split("\n");
 check(
 	"hint is the first line",
-	longLines[0] === `... (26 earlier lines, ${HINT})`,
+	longLines[0] === `... (25 earlier lines, ${HINT})`,
 	longLines[0],
 );
-check("head lines are dropped", !long.includes("line 26"));
+check("head lines are dropped", !long.includes("line 25"));
 check(
 	"tail lines are kept",
-	long.includes("line 27") && long.includes("line 30"),
+	long.includes("line 26") && long.includes("line 30"),
 );
 check(
 	"the tail is the last line",
@@ -60,8 +60,8 @@ check(
 	longLines[longLines.length - 1],
 );
 check(
-	"the block is exactly 5 rows, all of them text",
-	longLines.length === 5 && longLines.every((line) => line.trim() !== ""),
+	"the block is the hint plus exactly 5 rows, all of them text",
+	longLines.length === 6 && longLines.every((line) => line.trim() !== ""),
 	JSON.stringify(longLines),
 );
 check("no blank rows in the tail", !/\n\n/.test(long));
@@ -69,12 +69,12 @@ check("no blank rows in the tail", !/\n\n/.test(long));
 // 3) singular wording, blank-run trimming, and the fit short-circuit
 check(
 	"singular hint for one dropped line",
-	truncateThinking("l1\n\nl2\n\nl3", 3) ===
+	truncateThinking("l1\n\nl2\n\nl3", 2) ===
 		`... (1 earlier line, ${HINT})\nl2\nl3`,
 );
 check(
 	"blank separators never enter the tail",
-	truncateThinking("l1\n\n\n\n\nl2", 2) === `... (1 earlier line, ${HINT})\nl2`,
+	truncateThinking("l1\n\n\n\n\nl2", 1) === `... (1 earlier line, ${HINT})\nl2`,
 );
 check(
 	"a block as tall as the budget is left whole",
@@ -96,8 +96,8 @@ check(
 	JSON.stringify(fenced),
 );
 check(
-	"a fenced tail keeps exactly 7 rows",
-	fenced.split("\n").length === 7,
+	"a fenced tail keeps exactly 7 reasoning rows",
+	fenced.split("\n").length === 8,
 	JSON.stringify(fenced.split("\n")),
 );
 
@@ -128,7 +128,7 @@ check(
 	transformer(think(30), {
 		messageType: "assistant-thinking",
 		isStreaming: false,
-	}).includes("28 earlier lines"),
+	}).includes("27 earlier lines"),
 );
 check(
 	"streaming and finished thinking parts render alike",
@@ -148,7 +148,7 @@ const five = transformer(think(30), {
 });
 check(
 	"the transformer reads the line count live",
-	five.includes("26 earlier lines") && five.includes("line 27"),
+	five.includes("25 earlier lines") && five.includes("line 26"),
 );
 state.value = { view: "preview", lines: 7 };
 const seven = transformer(think(30), {
@@ -157,7 +157,7 @@ const seven = transformer(think(30), {
 });
 check(
 	"a larger budget keeps more reasoning",
-	seven.includes("24 earlier lines") && seven.includes("line 25"),
+	seven.includes("23 earlier lines") && seven.includes("line 24"),
 );
 
 // 8) the three display levels
