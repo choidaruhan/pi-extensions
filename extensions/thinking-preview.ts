@@ -5,15 +5,16 @@
  * cycles them with Ctrl+T:
  *
  *   1. full     every line of the block
- *   2. preview  the *tail* of the block: the last N rendered rows of reasoning with a
- *               `... (X earlier lines, ctrl+t)` hint above (default level). N counts rows
- *               as they land on screen, so a line the terminal wraps costs the several rows
- *               it fills and a budget that ends mid-line shows the tail of that line; blank
- *               separators between parts are free.
+ *   2. preview  a block `N` rows tall: a `... (X earlier lines, ctrl+t)` hint on its own
+ *               row above the *tail* of the block, the last `N - 1` rows of reasoning
+ *               (default level). N counts rows as they land on screen, so a line the
+ *               terminal wraps costs the several rows it fills and a budget that ends
+ *               mid-line shows the tail of that line; blank separators are dropped so
+ *               every row the block shows is a row of reasoning.
  *   3. hidden   a single muted `Thinking...` line, nothing else
  *
  * Defaults:
- *   level = preview, N = 3 rows
+ *   level = preview, N = 5 rows (hint + 4 rows of reasoning)
  *   Override at load time with PI_THINKING_PREVIEW_VIEW=<full|preview|hidden>
  *   and/or PI_THINKING_PREVIEW_LINES=<n>, or per run with --thinking-preview=<value>.
  *   Hint text: PI_THINKING_PREVIEW_HINT="<text>", hidden label: PI_THINKING_HIDDEN_LABEL.
@@ -51,8 +52,8 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Height of the default preview block in rendered rows: the hint, its blank separator and
- * two rows of reasoning. Budgets below 3 leave no room for the hint (see truncateThinking).
+ * Height of the default preview block in rendered rows: the hint row plus four rows of
+ * reasoning. Budgets below 2 leave no room for the hint (see truncateThinking).
  */
 const DEFAULT_PREVIEW_LINES = 5;
 const MAX_PREVIEW_LINES = 500;
@@ -381,17 +382,20 @@ export function measureLines(lines: string[], width: number): LineRow[] {
 
 	return lines.map((line) => {
 		const blank = line.trim() === "";
-		if (!(width > 0))
+		if (!(width > 0)) {
+			const marker = FENCE.test(line);
 			return {
-				// Without a width there is no wrapping to model, so one row is one source line;
-				// a blank separator still occupies the row it sits on in the final render.
+				// Without a width there is no wrapping to model, so one row is one source line; a
+				// blank separator still occupies the row it sits on in the final render. Fence
+				// markers stay markers here too, so a tail never starts on a bare fence.
 				rows: 1,
 				contentRows: blank ? 0 : 1,
 				sliceable: false,
 				depth: 0,
-				fenced: false,
-				marker: false,
+				fenced: marker,
+				marker,
 			};
+		}
 
 		if (FENCE.test(line)) {
 			levels.length = 0;
@@ -471,44 +475,40 @@ interface ShownTail {
 }
 
 interface TailSelection {
+	/** Tail lines in source order; fence markers and blank separators are dropped. */
 	lines: string[];
-	/** Rendered rows the selection keeps, blank separators included. */
+	/** Rendered rows of reasoning the selection keeps. */
 	rows: number;
-	/** Content rows of the original block the selection keeps (blank separators not counted). */
-	contentRows: number;
 }
 
-/** Bottom-up selection of the lines that fit in `maxRows` rendered rows. */
+/** Bottom-up selection of the content lines that fit in `maxRows` rendered rows. */
 function selectTail(
 	lines: string[],
 	measured: LineRow[],
 	maxRows: number,
 	width: number,
 ): TailSelection {
-	if (maxRows <= 0) return { lines: [], rows: 0, contentRows: 0 };
+	if (maxRows <= 0) return { lines: [], rows: 0 };
 
+	const tail: string[] = [];
 	let rows = 0;
-	let contentRows = 0;
-	let start = lines.length;
 	let cutLine = -1;
 	let cutRows = 0;
 	for (let i = lines.length - 1; i >= 0; i--) {
-		// Fence markers are never part of the shown tail. On its own a marker renders as a
-		// code block that swallows whatever follows it and costs rows the reader did not ask
-		// for, so dropping it keeps the shown text plain and the row count exact.
-		if (measured[i].marker) continue;
-		const rowsHere = measured[i].rows;
+		// Fence markers and blank separators never enter the tail: a marker on its own opens a
+		// code block that swallows whatever follows it (and costs rows the reader did not ask
+		// for), and a blank row would spend one of the reader's rows on spacing nobody sees.
+		if (measured[i].marker || measured[i].contentRows === 0) continue;
+		const rowsHere = measured[i].contentRows;
 		if (rows + rowsHere > maxRows) {
 			cutLine = i;
 			cutRows = measured[i].sliceable ? maxRows - rows : 0;
 			break;
 		}
 		rows += rowsHere;
-		contentRows += measured[i].contentRows;
-		start = i;
+		tail.unshift(lines[i]);
 	}
 
-	const kept: string[] = [];
 	if (cutLine >= 0 && cutRows > 0) {
 		const { prefix, body, columns } = splitLinePrefix(
 			lines[cutLine],
@@ -526,26 +526,23 @@ function selectTail(
 		}
 		// Re-emit the marker, but without its indentation: a nested item rendered on its own
 		// would be parsed as a code block instead of a list item.
-		kept.push(
+		tail.unshift(
 			`${prefix.replace(/^\s+/, "")}${body.slice(offset).replace(/^\s+/, "")}`,
 		);
 		rows += cutRows;
-		// A blank line cut in half is still spacing, not reasoning.
-		contentRows += measured[cutLine].contentRows === 0 ? 0 : cutRows;
 	}
-	kept.push(...lines.slice(start));
-	return { lines: kept, rows, contentRows };
+	return { lines: tail, rows };
 }
 
 /**
  * Take the tail of a block that fits in `maxRows` rendered rows.
  *
  * Rows are counted the way pi renders them: a long line the terminal wraps costs the
- * several rows it fills, and a blank separator between parts costs its own row too, so
- * the tail occupies the same height on screen however the paragraphs fall. When the
- * budget lands in the middle of a line, the front of that line is dropped and the line's
- * own prefix (blockquote border, list marker) is re-emitted, so the visible fragment
- * keeps wrapping at the same width pi would have used.
+ * several rows it fills, and blank separators are dropped rather than counted, so every row
+ * the tail occupies on screen is a row of reasoning. When the budget lands in the middle of
+ * a line, the front of that line is dropped and the line's own prefix (blockquote border,
+ * list marker) is re-emitted, so the visible fragment keeps wrapping at the same width pi
+ * would have used.
  *
  * `hiddenRows` reports the lines of reasoning left out above the tail (blank separators
  * are not counted as reasoning).
@@ -566,31 +563,38 @@ export function tailByRows(
 	if (renderedTotal <= maxRows) return { shown: trimmed, hiddenRows: 0 };
 
 	const selection = selectTail(lines, measured, maxRows, width);
-	const tail = selection.lines;
-	// Blank separators that used to sit above the tail are dropped: the hint takes their place.
-	let hiddenRows = contentTotal - selection.contentRows;
-	while (tail.length > 0 && tail[0].trim() === "") {
-		hiddenRows += measureLines([tail[0]], width)[0].contentRows;
-		tail.shift();
-	}
+	const hiddenRows = contentTotal - selection.rows;
 	return {
-		shown: tail.join("\n").replace(/\s+$/, ""),
+		shown: selection.lines.join("\n").replace(/\s+$/, ""),
 		hiddenRows,
 	};
 }
 
-/** Rows the hint line and its blank separator add to the block. */
-const HINT_ROWS = 2;
+/** Rows the hint line adds when it fits on one row (narrow previews wrap it onto more). */
+const HINT_ROWS = 1;
+
+/** Rows a hint takes on screen: a hint wider than the preview wraps onto several rows. */
+function hintRows(hint: string, width: number): number {
+	return width > 0 ? wrapTextWithAnsi(hint, width).length : 1;
+}
+
+/** The hint above a tail, reporting how many lines of reasoning it left out. */
+function previewHint(hiddenRows: number): string {
+	const unit = hiddenRows === 1 ? "line" : "lines";
+	return `... (${hiddenRows} earlier ${unit}, ${expandHint()})`;
+}
 
 /**
  * Render a thinking block for display: the last rows of the block with a hint above
  * reporting how many earlier lines were dropped.
  *
- * `maxLines` is the height of the whole block, hint included — counted in rendered rows
- * when `width` is a positive number (the wrap width pi passes as `availableWidth`, so a
- * long line counts as the several rows it fills) and in source lines otherwise. The block
- * therefore keeps the same height while it streams. Budgets too small to hold the hint
- * spend everything on reasoning text instead of showing a bare hint.
+ * `maxLines` is the height of the whole block in rows the reader counts, hint included:
+ * `maxLines = 5` shows the hint plus four rows of reasoning, each of them a visible line.
+ * Rows are measured as pi renders them when `width` is a positive number (the wrap width
+ * pi passes as `availableWidth`, so a long line counts as the several rows it fills) and
+ * as source lines otherwise. The block therefore keeps the same height while it streams.
+ * Budgets too small to hold the hint spend everything on reasoning text instead of showing
+ * a bare hint.
  * `maxLines = 0` disables the preview entirely (markdown is returned untouched).
  */
 export function truncateThinking(
@@ -605,25 +609,36 @@ export function truncateThinking(
 	// A block that already fits the whole budget is shown as it is, hint and all.
 	if (countRenderedRows(markdown, width) <= maxLines)
 		return markdown.replace(/\s+$/, "");
-	// A hint only earns its two rows when a line of reasoning still fits under it.
-	const roomForHint = maxLines > HINT_ROWS;
-	const maxRows = roomForHint ? maxLines - HINT_ROWS : maxLines;
-	const { shown: body, hiddenRows } = tailByRows(markdown, maxRows, width);
-
-	let shown = body;
-
-	// A dangling code fence would swallow everything after it (and look broken), so close it.
-	const fenceCount = (shown.match(/^\s*```/gm) ?? []).length;
-	if (fenceCount % 2 === 1) shown += "\n```";
+	// A hint only earns its row when a line of reasoning still fits under it.
+	// The hint costs rows of its own and wraps when the preview is narrow, so the budget is
+	// re-measured until it settles: a smaller budget hides more lines, which can only make the
+	// count — and therefore the hint — shorter.
+	let hintRowCount = maxLines > HINT_ROWS ? HINT_ROWS : 0;
+	let body = "";
+	let hiddenRows = 0;
+	let hint = "";
+	for (let pass = 0; pass < 4; pass++) {
+		({ shown: body, hiddenRows } = tailByRows(
+			markdown,
+			maxLines - hintRowCount,
+			width,
+		));
+		hint = hintRowCount > 0 && hiddenRows > 0 ? previewHint(hiddenRows) : "";
+		const rows = hint === "" ? 0 : hintRows(hint, width);
+		if (rows === hintRowCount) break;
+		// A budget too small for even one row of reasoning shows text instead of a bare hint.
+		hintRowCount = maxLines - rows > 0 ? rows : 0;
+	}
 
 	const parts: string[] = [];
-	if (roomForHint && hiddenRows > 0) {
-		const unit = hiddenRows === 1 ? "line" : "lines";
-		parts.push(`... (${hiddenRows} earlier ${unit}, ${expandHint()})`);
-	}
-	if (shown !== "") parts.push(shown);
+	if (hint !== "") parts.push(hint);
+	if (body !== "") parts.push(body);
 
-	return parts.join("\n\n");
+	// A single newline keeps the hint and the text on their own rows (pi renders a source
+	// line break as a row break inside a paragraph), so the block is exactly maxLines rows
+	// tall with no row spent on spacing. Fence markers are dropped with the tail, so the
+	// preview can never end on a dangling fence.
+	return parts.join("\n");
 }
 
 /** Everything the event handlers need to talk to the UI. */

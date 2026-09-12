@@ -88,7 +88,7 @@ check(
 );
 check(
 	"default level previews within 5 rows",
-	level(think(30)) === "preview(28)",
+	level(think(30)) === "preview(26)",
 );
 
 // Ctrl+T walks full -> preview -> hidden -> full; from the default it hides first.
@@ -107,7 +107,7 @@ check(
 );
 check(
 	"3rd press returns to the preview",
-	press()?.consume === true && level(think(30)) === "preview(28)",
+	press()?.consume === true && level(think(30)) === "preview(26)",
 );
 check(
 	"each press refreshed the transcript",
@@ -128,7 +128,7 @@ check(
 	inputHandler("\x14abc") === undefined,
 );
 check("alt+t is not consumed", inputHandler("\x1bt") === undefined);
-check("no other key changed the level", level(think(30)) === "preview(28)");
+check("no other key changed the level", level(think(30)) === "preview(26)");
 
 // Answer text must stay pristine on every level.
 for (const messageType of ["assistant", "user"]) {
@@ -143,7 +143,7 @@ for (const messageType of ["assistant", "user"]) {
 await commands.get("thinking-preview").handler("full", ctx);
 check("command full", level(think(30)) === "full");
 await commands.get("thinking-preview").handler("5", ctx);
-check("command 5 lines", level(think(30)) === "preview(28)");
+check("command 5 lines", level(think(30)) === "preview(26)");
 check(
 	"command echoed the level",
 	calls.notify.at(-1).includes("preview (높이 5줄)"),
@@ -154,13 +154,13 @@ check("command hidden", level(think(30)) === "hidden");
 await commands.get("thinking-preview").handler("preview", ctx);
 check(
 	"command preview keeps the last line count",
-	level(think(30)) === "preview(28)",
+	level(think(30)) === "preview(26)",
 );
 await commands.get("thinking-preview").handler("bogus", ctx);
 check(
 	"command rejects junk",
 	calls.notify.at(-1).startsWith("warning:") &&
-		level(think(30)) === "preview(28)",
+		level(think(30)) === "preview(26)",
 	calls.notify.at(-1),
 );
 await commands.get("thinking-preview").handler("", ctx);

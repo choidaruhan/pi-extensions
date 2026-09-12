@@ -57,20 +57,37 @@ console.log(
 );
 check("plain render shows the last reasoning step", plain.includes("step 30"));
 check(
-	"preview keeps the newest reasoning (step 29-30)",
-	preview.includes("step 29") && preview.includes("step 30"),
+	"preview keeps the newest reasoning (step 27-30)",
+	preview.includes("step 27") && preview.includes("step 30"),
 );
-check("preview drops the head", !preview.includes("step 28"));
+check("preview drops the head", !preview.includes("step 26"));
 check(
 	"preview shows the collapsed-style hint",
-	preview.includes("... (28 earlier lines, ctrl+t to cycle)"),
+	preview.includes("... (26 earlier lines, ctrl+t to cycle)"),
 	preview.match(/\.\.\. \([^)]*\)/)?.[0] ?? "no hint",
 );
 
-const hintAt = preview.indexOf("... (28 earlier lines");
-const tailAt = preview.indexOf("step 29");
+const hintAt = preview.indexOf("... (26 earlier lines");
+const tailAt = preview.indexOf("step 27");
 const answerAt = preview.indexOf("Answer: 391");
 check("hint sits above the tail", hintAt !== -1 && hintAt < tailAt);
+// The block is exactly N rows tall and every row is text: the hint sits directly above the
+// first kept line, with no blank separator spending one of the N rows on spacing.
+const previewLines = preview.split("\n").map((line) => line.trim());
+const hintLine = previewLines.findIndex((line) => line.startsWith("... (26 earlier"));
+const tailLine = previewLines.findIndex((line) => line.startsWith("step 27:"));
+check(
+	"hint sits directly above the tail, no blank row between",
+	tailLine === hintLine + 1,
+	`hint@${hintLine} tail@${tailLine}`,
+);
+check(
+	"the preview block is exactly 5 rows of text",
+	hintLine !== -1 &&
+		previewLines.slice(hintLine, hintLine + 5).every((line) => line !== "") &&
+		previewLines[hintLine + 5] === "",
+	JSON.stringify(previewLines.slice(hintLine, hintLine + 6)),
+);
 check(
 	"the tail sits above the answer",
 	tailAt !== -1 && tailAt < answerAt,
@@ -124,8 +141,8 @@ check(
 	`${rows(hidden)} < ${rows(preview)}`,
 );
 
-// The budget is the height of the whole block on screen: hint, its blank line and the
-// reasoning tail together. This is the bug the row budget exists to fix — the preview used
+// The budget is the height of the whole block on screen: the hint row plus N - 1 rows of
+// reasoning. This is the bug the row budget exists to fix — the preview used
 // to grow well past N rows as the tail took on more blank separators.
 const prose = Array.from(
 	{ length: 20 },
@@ -158,6 +175,65 @@ const height = (lines) => {
 for (const n of [3, 5, 7, 9]) {
 	const shown = height(n);
 	check(`preview of ${n} rows renders ${n} rows`, shown === n, `${shown}`);
+}
+
+// Exactness across shapes and widths: the hint row (it wraps on a narrow preview) plus the
+// rows of reasoning must add up to N on screen for every budget.
+const shapeOf = {
+	short: Array.from({ length: 30 }, (_, i) => `step ${i + 1}: reasoning`).join(
+		"\n\n",
+	),
+	long: Array.from(
+		{ length: 30 },
+		(_, i) => `step ${i + 1}: ${"deep reasoning word ".repeat(6)}`,
+	).join("\n\n"),
+	fenced: `${Array.from({ length: 10 }, (_, i) => `step ${i + 1}: reasoning`).join("\n\n")}\n\n\`\`\`js\n${"const x = 1; // code line\n".repeat(8)}\`\`\``,
+	list: Array.from(
+		{ length: 20 },
+		(_, i) => `- item ${i + 1}: ${"detail ".repeat(4)}`,
+	).join("\n\n"),
+	quote: Array.from(
+		{ length: 20 },
+		(_, i) => `> quoted step ${i + 1} ${"words ".repeat(3)}`,
+	).join("\n\n"),
+};
+const blockRows = (thinking, lines, width) => {
+	state.view = "preview";
+	state.lines = lines;
+	const out = strip(
+		new AssistantMessageComponent(
+			{
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking },
+					{ type: "text", text: "Answer: 391" },
+				],
+			},
+			false,
+			undefined,
+			"Thinking...",
+			1,
+			[transformer],
+		)
+			.render(width)
+			.join("\n"),
+	).split("\n");
+	const answerAt = out.findIndex((line) => line.includes("Answer"));
+	return out.slice(1, answerAt - 1).filter((line) => line.trim() !== "").length;
+};
+for (const [shape, text] of Object.entries(shapeOf)) {
+	for (const width of [100, 60, 34, 20]) {
+		let wrong = [];
+		for (let n = 1; n <= 12; n++) {
+			const shown = blockRows(text, n, width);
+			if (shown !== n) wrong.push(`N=${n}->${shown}`);
+		}
+		check(
+			`${shape} at width ${width}: every budget renders exactly N rows`,
+			wrong.length === 0,
+			wrong.join(" "),
+		);
+	}
 }
 
 // Live switching: the component caches its render, so the extension's refresh

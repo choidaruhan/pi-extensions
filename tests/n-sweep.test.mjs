@@ -46,9 +46,10 @@ const check = (name, cond, extra = "") => {
 
 // 1) each N shows a different number of earlier lines, always keeping the newest ones
 const byN = {};
-// Content lines kept by a budget of N rows: with one blank line between lines, k lines cost
-// 2k-1 rows. N=1 has no room for the hint at all (hint + its blank line = 2 rows).
-const HIDDEN = { 1: null, 3: 29, 5: 28 };
+// Content lines kept by a budget of N rows: N = 1 + (rows of reasoning), because the hint
+// costs a single row and blank separators are dropped from the tail. N=1 has no room for
+// the hint at all (it would leave nothing to preview).
+const HIDDEN = { 1: null, 3: 28, 5: 26 };
 for (const n of [1, 3, 5]) {
 	live = { view: "preview", lines: n };
 	const out = render(make());
@@ -105,7 +106,7 @@ check(
 );
 check(
 	"pre-refresh render showed the preview",
-	before.includes("28 earlier lines"),
+	before.includes("26 earlier lines"),
 );
 check(
 	"post-refresh render hides the reasoning",
