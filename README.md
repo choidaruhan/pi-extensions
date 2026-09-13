@@ -7,7 +7,7 @@ loaded into pi through symlinks from `~/.pi/agent/extensions/`.
 
 | Path | What it does |
 | --- | --- |
-| `extensions/thinking-preview.ts` | Gives `Thinking…` blocks three display levels and cycles them with **Ctrl+T**: `full` (whole block), `preview` (the *tail* of the block — a `... (X earlier lines, ctrl+t to cycle)` hint row plus the most recent reasoning, with the hint sitting **above N rendered rows of reasoning** — rows counted by pi's own markdown renderer, at the width pi draws at, with the extension's own row model as a fallback — and never charged to the budget, so a long line that the terminal wraps counts as the several rows it fills and blank separators are dropped rather than counted), `hidden` (one muted `Thinking…` line). Command `/thinking-preview [n\|full\|preview\|hidden]`, flag `--thinking-preview <value>`, env `PI_THINKING_PREVIEW_VIEW` / `PI_THINKING_PREVIEW_LINES`, overrides `PI_THINKING_PREVIEW_HINT` and `PI_THINKING_HIDDEN_LABEL`. The level is persisted to `~/.pi/agent/thinking-preview.json`, so `/reload` and new sessions keep it. |
+| `extensions/thinking-preview.ts` | Gives `Thinking…` blocks three display levels and cycles them with **Ctrl+T**: `full` (whole block), `preview` (the *tail* of the block — a `... (X earlier lines, ctrl+t to cycle)` hint row plus the most recent reasoning, with the hint sitting **above N rendered rows of reasoning**, separated from the tail by one blank row — rows counted by pi's own markdown renderer, at the width pi draws at, with the extension's own row model as a fallback — and never charged to the budget, so a long line that the terminal wraps counts as the several rows it fills and blank separators are dropped rather than counted), `hidden` (one muted `Thinking…` line). Command `/thinking-preview [n\|full\|preview\|hidden]`, flag `--thinking-preview <value>`, env `PI_THINKING_PREVIEW_VIEW` / `PI_THINKING_PREVIEW_LINES`, overrides `PI_THINKING_PREVIEW_HINT` and `PI_THINKING_HIDDEN_LABEL`. The level is persisted to `~/.pi/agent/thinking-preview.json`, so `/reload` and new sessions keep it. |
 | `extensions/web-search-summary-model.ts` | Keeps `web-search.json` → `summaryModel` pointed at the active pi model. Opt-in: does nothing unless that file has `"summaryModelAuto": true`. |
 
 Not in this repo: `~/.pi/agent/extensions/herdr-agent-state.ts`, which the `herdr` tool installs and
@@ -48,11 +48,11 @@ PI_OFFLINE=1 tools/pty-keys.py 14 6 2 -- pi --no-approve --no-extensions \
 `./run-tests.sh` runs six suites with plain `node` (Node ≥ 23 strips TypeScript natively):
 
 - `tests/truncate-thinking.test.mjs` — tail selection, hint formatting, the three levels, level-spec parsing and the cycle order
-- `tests/render.test.mjs` — renders pi's real `AssistantMessageComponent` through the extension's own transformer, per level, and asserts the rendered block is exactly N reasoning rows plus the hint's own rows across five block shapes, four widths and N = 1–12
+- `tests/render.test.mjs` — renders pi's real `AssistantMessageComponent` through the extension's own transformer, per level, and asserts the rendered block is exactly N reasoning rows plus the hint row and its blank row across five block shapes, four widths and N = 1–12
 - `tests/n-sweep.test.mjs` — N = 1/3/5, level changes on a live component, and pi's own hidden-thinking path
 - `tests/ctrl-t.test.mjs` — the extension's real `session_start` handler, the real `matchesKey`, Ctrl+T consumption, `/thinking-preview`, and handler stacking across sessions
 - `tests/state.test.mjs` — level persistence, precedence (flag > env > saved file > default), and legacy state files
-- `tests/rows.test.mjs` — row accounting checked against pi's real markdown renderer: whole-block counts for prose, CJK, lists, quotes and fences, that the shipped counter *is* that renderer (and that the fallback model still matches it on plain shapes), that shapes the fallback gets wrong (inline emphasis pi renders literally, a first line indented 4+ columns, a wide table cell) are exact, that a composed preview renders exactly N rows plus its hint for indented continuation lines at the wrap boundary, plus the preview *tail* never exceeding N rendered rows (the reported bug: one long line previewed as one row)
+- `tests/rows.test.mjs` — row accounting checked against pi's real markdown renderer: whole-block counts for prose, CJK, lists, quotes and fences, that the shipped counter *is* that renderer (and that the fallback model still matches it on plain shapes), that shapes the fallback gets wrong (inline emphasis pi renders literally, a first line indented 4+ columns, a wide table cell) are exact, that a composed preview renders exactly N reasoning rows plus its hint row and blank row for indented continuation lines at the wrap boundary, that the composed preview never exceeds N reasoning rows (the reported bug: one long line previewed as one row)
 
 `tests/pi-root.mjs` locates the installed pi package (`$PI_ROOT`, then Homebrew Cellar, then npm `-g`)
 so the suites survive pi version bumps, and links pi's bundled `@earendil-works/pi-tui` into
@@ -91,8 +91,12 @@ with it the `hideThinkingBlock` write to `settings.json` — from ever running. 
   `preview` restores the N you had.
 - `lines` is how many rows of **reasoning** the preview shows: `preview 5` shows five rows of reasoning, and the
   `... (X earlier lines…)` hint sits on top of them without being charged to the budget (it costs the rows
-  it really occupies when it wraps on a narrow preview), so the block is N rows plus the hint. A block
-  shorter than N is shown whole, hint and all.
+  it really occupies when it wraps on a narrow preview), separated from the tail by one blank row — also
+  uncharged — so the block is N reasoning rows plus the hint row and its blank row. A block shorter than
+  N is shown whole, hint and all.
+- The blank row under the hint is not cosmetic: it ends the hint's paragraph, so pi never folds the
+  tail's first line into it. Without it a tail line that starts with whitespace renders as an indented
+  continuation of the hint, which changes how it wraps and costs rows the budget never asked for.
 - Blank separator lines never enter the tail: they are dropped rather than charged, so every one of the N
   rows is a row of reasoning instead of spacing, and even a one-row budget still shows a row of reasoning
   under its hint.
@@ -105,14 +109,18 @@ with it the `hideThinkingBlock` write to `settings.json` — from ever running. 
   whitespace it carries (pi wraps it at the paragraph's reduced width), so its indent is counted with
   the text rather than trimmed off.
 - If that renderer cannot be built (a pi release that moves or reshapes it), the preview falls back to
-  its own row model and says so (the fallback switches on the next measurement): prose, CJK, list and
-  quote prefixes and fences still count exactly, while a table cell pi renders across rows, a block
-  whose *first* line is indented 4+ columns, and inline emphasis pi renders literally
-  (`${_comps[${f#_}]}`) can each be a row off near a wrap boundary.
-- The fidelity that matters is one-way: **the composed preview is never taller than N rows**. When the
-  row above would drag in a fence marker or a line the budget cannot hold, the preview shows the
-  tallest tail that fits — N minus a row or two on ~0.1% of real blocks measured, which is the price
-  of never rendering over budget.
+  its own row model and `/thinking-preview` says which counter is in use (`pi 렌더러` / `자체 행 모델(폴백)`,
+  switching on the next measurement): prose, CJK, list and quote prefixes and fences still count exactly,
+  while a table cell pi renders across rows, a block whose *first* line is indented 4+ columns, and inline
+  emphasis pi renders literally (`${_comps[${f#_}]}`) can each be a row off near a wrap boundary.
+- The count is deliberately **unstyled**: pi draws a thinking block through a colour callback, and under
+  that style pi's own wrapping inserts one extra row when it breaks a token too long for the line. Counting
+  the plain render keeps one code path for every block at the cost of that rare row — measured at one
+  preview in ~5,300 over 975 real thinking blocks × widths 70/72/74/76/78/80.
+- The fidelity that matters is one-way: **the composed preview is never taller than N reasoning rows**.
+  Over those 5,292 measured previews it hit N exactly 98.6% of the time and came in a row short on 1.3%
+  (a line the tail cannot split evenly), two rows short on 0.15%; the only over-budget case was the styled
+  long-token wrap above, which belongs to pi's renderer rather than to the row count.
 - pi runs registered markdown transformers over **every** assistant markdown part, the final answer text
   included. `createThinkingTransformer`'s thinking gate (`messageType`/`kind`) is what keeps previews out of
   the response body — `tests/render.test.mjs` and `tests/ctrl-t.test.mjs` assert exactly that.

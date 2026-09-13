@@ -6,11 +6,12 @@
  *
  *   1. full     every line of the block
  *   2. preview  the last `N` rows of the block, with a `... (X earlier lines, ctrl+t)`
- *               hint on its own row above them (default level). The hint is extra: N counts
- *               reasoning rows only. Rows are counted by pi's own markdown renderer, so a line
- *               the terminal wraps costs the several rows it fills and a budget that ends
- *               mid-line shows the tail of that line; blank separators are dropped so every
- *               row the block shows is a row of reasoning.
+ *               hint on its own row above them (default level). The hint and the blank row
+ *               under it are extra: N counts reasoning rows only. Rows are counted by pi's own
+ *               markdown renderer, so a line the terminal wraps costs the several rows it
+ *               fills and a budget that ends mid-line shows the tail of that line; blank
+ *               separators inside the block are dropped so every row below the hint is a row of
+ *               reasoning.
  *   3. hidden   a single muted `Thinking...` line, nothing else
  *
  * Defaults:
@@ -545,6 +546,12 @@ export function measureLines(lines: string[], width: number): LineRow[] {
  * prefixes (code block indent, list bullets, quote border) and closes over the live theme, so
  * a single instance follows a theme switch.
  *
+ * The measurement is unstyled, on purpose. pi draws a thinking block through a colour callback,
+ * and its own wrapping inserts an extra row when it breaks a token too long for the line under
+ * that style (measured: one preview in ~5,300). Counting the unstyled render keeps a single code
+ * path for every block instead of mirroring pi's styling, and the cost of that trade is bounded:
+ * in the rare styled case the preview renders one row taller than the budget asked for.
+ *
  * `measureLines` stays as the fallback: it needs no theme and reads the shapes this module
  * emits itself, so a renderer that cannot be built or used degrades instead of throwing inside
  * a streaming render.
@@ -702,23 +709,21 @@ export function tailByRows(
 }
 
 /**
- * The markdown the reader sees: the hint above the tail.
+ * The markdown the reader sees: the hint, a blank row, then the tail.
  *
- * A single newline keeps the hint and the text on their own rows (pi renders a source line
- * break as a row break inside a paragraph), so the reasoning rows are exactly maxLines tall
- * with no row spent on spacing. Fence markers are dropped with the tail, so the preview can
- * never end on a dangling fence.
+ * The blank row is what keeps the budget exact. It ends the hint's paragraph, so pi never folds
+ * the tail's first line into it: without the separator a tail line that starts with whitespace is
+ * rendered as an indented continuation of the hint, which changes how it wraps and costs rows the
+ * budget never asked for. Separated, the tail renders exactly as it does on its own, and the
+ * composed preview is one row taller than the hint and the tail together whichever shape the tail
+ * starts with (measured against pi for heading, quote, fence, table, list and prose tails).
+ *
+ * Fence markers are dropped with the tail, so the preview can never end on a dangling fence.
  */
 function preview(hint: string, body: string): string {
-	const parts: string[] = [];
-	if (hint !== "") parts.push(hint);
-	if (body !== "") parts.push(body);
-	return parts.join("\n");
-}
-
-/** Rows a hint takes on screen: a hint wider than the preview wraps onto several rows. */
-function hintRows(hint: string, width: number): number {
-	return width > 0 ? wrapTextWithAnsi(hint, width).length : 1;
+	if (hint === "") return body;
+	if (body === "") return hint;
+	return `${hint}\n\n${body}`;
 }
 
 /** The hint above a tail, reporting how many lines of reasoning it left out. */
@@ -732,12 +737,12 @@ function previewHint(hiddenRows: number): string {
  * reporting how many earlier lines were dropped.
  *
  * `maxLines` is how many rows of reasoning the reader gets: `maxLines = 5` shows five rows
- * of reasoning, and the hint reporting the dropped lines sits on top of them without being
- * charged to the budget. Rows are measured as pi renders them when `width` is a positive
- * number (the wrap width pi passes as `availableWidth`, so a long line counts as the
- * several rows it fills) and as source lines otherwise. The block therefore keeps the same
- * height while it streams. A block no taller than `maxLines` is returned untouched, hint
- * and all.
+ * of reasoning, with the hint reporting the dropped lines and the blank row under it sitting
+ * above them without being charged to the budget. Rows are measured as pi renders them when
+ * `width` is a positive number (the wrap width pi passes as `availableWidth`, so a long line
+ * counts as the several rows it fills) and as source lines otherwise. The block therefore
+ * keeps the same height while it streams. A block no taller than `maxLines` is returned
+ * untouched, hint and all.
  * `maxLines = 0` disables the preview entirely (markdown is returned untouched).
  */
 export function truncateThinking(
@@ -777,6 +782,16 @@ function dropQuoteBorders(markdown: string): string {
  * cannot fill the budget exactly (a hint plus a blockquote need more rows than a one-row
  * preview has).
  */
+/**
+ * How far below the budget the composition scans for a tail that fits.
+ *
+ * The composition picks a tail with the line model and then measures it with pi's renderer, and
+ * pi inserts rows of its own (around headings, when it breaks a long token across two), so the
+ * modelled count and the rendered one differ by a row or two. The exact fit is searched from the
+ * budget downwards, and the scan is bounded because every step costs a render.
+ */
+const BUDGET_SCAN = 6;
+
 function compose(
 	markdown: string,
 	maxLines: number,
@@ -784,46 +799,60 @@ function compose(
 ): { shown: string; exact: boolean } {
 	// The hint is not charged to the budget: maxLines buys reasoning rows, and the hint's own
 	// rows (it wraps when the preview is narrow) sit above them.
-	let budget = maxLines;
-	let body = "";
-	let hiddenRows = 0;
-	let hint = "";
+	//
+	// The tail is measured with pi's renderer rather than trusted from the model: pi inserts rows
+	// the model cannot see (around headings, when it breaks a long token), so the budget is
+	// scanned downwards for the tallest tail that still renders inside maxLines. Measuring the
+	// composed preview instead lets the renderer's answer feed back into the budget, which
+	// oscillates between two tails — the reader asks for five rows, the model pays for six, the
+	// renderer draws eight, the budget drops to three.
 	let best = "";
 	let bestRows = 0;
-	// The block pi renders is not always as tall as the source rows it kept — the hint opens a
-	// paragraph in front of the tail and markdown joins the two — so the composed preview is
-	// measured as well, and the budget corrected until the reasoning settles on maxLines rows.
-	for (let pass = 0; pass < 8; pass++) {
-		({ shown: body, hiddenRows } = tailByRows(
+	let tallest = "";
+	let tallestBody = "";
+	let tallestHint = "";
+	for (
+		let budget = maxLines;
+		budget >= 0 && budget >= maxLines - BUDGET_SCAN;
+		budget--
+	) {
+		const { shown: body, hiddenRows } = tailByRows(
 			markdown,
 			Math.max(0, budget),
 			width,
-		));
-		hint = hiddenRows > 0 ? previewHint(hiddenRows) : "";
+		);
+		const hint = hiddenRows > 0 ? previewHint(hiddenRows) : "";
 		const candidate = preview(hint, body);
-		const rows = countRenderedRows(candidate, width);
-		const want = maxLines + (hint === "" ? 0 : hintRows(hint, width));
-		// The budget can overshoot and come back, so the best fit seen is kept instead of the
-		// last candidate the loop happened to land on.
-		if (rows <= want && rows > bestRows) {
+		if (tallestBody === "" && candidate !== "") {
+			tallest = candidate;
+			tallestBody = body;
+			tallestHint = hint;
+		}
+		if (body === "") continue;
+		// The tail is measured on its own: the separator in `preview` keeps the hint from changing
+		// how it renders, so the body's rows are the reasoning rows the reader counts.
+		const rows = countRenderedRows(body, width);
+		if (rows > maxLines) continue;
+		if (rows === maxLines) return { shown: candidate, exact: true };
+		// A budget below the one that fit can render taller (a heading dropped from the top of the
+		// tail joins the hint's paragraph), so the tallest fit seen is kept rather than the first.
+		if (rows > bestRows) {
 			best = candidate;
 			bestRows = rows;
 		}
-		if (rows === want) return { shown: candidate, exact: true };
-		const next = Math.max(0, budget + (want - rows));
-		if (next === budget) break;
-		budget = next;
 	}
-	let shown = best === "" ? preview(hint, body) : best;
+	if (best !== "") return { shown: best, exact: false };
+	let shown = tallest;
+	let body = tallestBody;
+	const hint = tallestHint;
 	// Whatever the composition did, never hand pi more reasoning rows than the budget: only the
-	// hint may sit above it.
+	// hint and its separator row may sit above them.
 	for (let pass = 0; pass < 4; pass++) {
-		const want = maxLines + (hint === "" ? 0 : hintRows(hint, width));
-		if (countRenderedRows(shown, width) <= want) break;
+		if (body === "" || countRenderedRows(body, width) <= maxLines) break;
 		const lines = body.split("\n");
 		body = lines.length > 1 ? lines.slice(1).join("\n") : "";
-		shown = preview(body === "" ? "" : hint, body);
 	}
+	shown = body === "" ? "" : preview(hint, body);
 	return { shown, exact: false };
 }
 
@@ -878,8 +907,12 @@ export default function (pi: ExtensionAPI) {
 			const raw = args.trim().toLowerCase();
 
 			if (!raw) {
+				const rowsFrom =
+					rowCounterSource() === "renderer"
+						? "pi 렌더러"
+						: "자체 행 모델(폴백)";
 				ctx.ui.notify(
-					`추론 표시 단계: ${state.view}${state.view === "preview" ? ` (추론 ${state.lines}줄 + 힌트)` : ""} — Ctrl+T로 단계 순환 (full → preview → hidden). 변경: /thinking-preview full|preview|hidden|<줄수>`,
+					`추론 표시 단계: ${state.view}${state.view === "preview" ? ` (추론 ${state.lines}줄 + 힌트)` : ""} — 행 계산: ${rowsFrom} — Ctrl+T로 단계 순환 (full → preview → hidden). 변경: /thinking-preview full|preview|hidden|<줄수>`,
 				);
 				if (state.view !== "hidden" && hideThinkingBlockEnabled())
 					ctx.ui.notify(hiddenWarning(), "warning");

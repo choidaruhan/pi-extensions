@@ -122,11 +122,12 @@ for (const width of [70, 80]) {
 		for (let len = width - indent - 3; len <= width - indent + 3; len++) {
 			const md = `${filler}\n${words}\n${" ".repeat(indent)}y${"y".repeat(len)}`;
 			const budget = 5;
-			// The composed preview is what pi renders, hint row included.
+			// The composed preview is what pi renders: the reasoning rows, plus the hint row, plus the
+			// blank row that keeps the tail out of the hint's paragraph.
 			const shown = truncateThinking(md, budget, { width });
 			const rows = turn(shown, width);
-			if (rows !== budget + 1)
-				wrong.push(`indent=${indent} len=${len}: ${rows} != ${budget + 1}`);
+			if (rows !== budget + 2)
+				wrong.push(`indent=${indent} len=${len}: ${rows} != ${budget + 2}`);
 		}
 	check(
 		`width ${width}: exactly ${5} rows + hint`,
