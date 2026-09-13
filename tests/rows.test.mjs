@@ -114,7 +114,7 @@ for (const width of [40, 70, 80]) {
 
 console.log("\n── an indented continuation preview renders the budget exactly");
 // Same shape end to end: whatever the widths are, the composed preview has to come out as
-// exactly the budgeted rows plus the hint row that says what was hidden.
+// exactly the budgeted rows under the hint row that says what was hidden.
 const filler = Array.from({ length: 6 }, (_, i) => `step ${i + 1}`).join("\n");
 for (const width of [70, 80]) {
 	const wrong = [];
@@ -122,12 +122,13 @@ for (const width of [70, 80]) {
 		for (let len = width - indent - 3; len <= width - indent + 3; len++) {
 			const md = `${filler}\n${words}\n${" ".repeat(indent)}y${"y".repeat(len)}`;
 			const budget = 5;
-			// The composed preview is what pi renders: the reasoning rows, plus the hint row, plus the
-			// blank row that keeps the tail out of the hint's paragraph.
+			// The composed preview is what pi renders: the reasoning rows, plus the hint row the tail
+			// hangs under. The merge with the hint can drop the continuation's indent, so the rendering
+			// is measured as a whole — never more than the budget, and exact on these shapes.
 			const shown = truncateThinking(md, budget, { width });
 			const rows = turn(shown, width);
-			if (rows !== budget + 2)
-				wrong.push(`indent=${indent} len=${len}: ${rows} != ${budget + 2}`);
+			if (rows !== budget + 1)
+				wrong.push(`indent=${indent} len=${len}: ${rows} != ${budget + 1}`);
 		}
 	check(
 		`width ${width}: exactly ${5} rows + hint`,
@@ -214,6 +215,31 @@ check(
 	lastWord.endsWith(cutLines.at(-1).trim()),
 	JSON.stringify(cutLines.at(-1)),
 );
+
+console.log("\n── a block taller than the budget even on its own still shows rows");
+// Shapes where the render disagrees with the line model about a single line's height: CJK costs
+// two columns per character, pi reads an indented first line as a code block, and a table cell
+// wider than its column is drawn across rows. The fallback used to trim the only line away and
+// hand the reader an empty block; it now keeps the rows of pi's own render of that line.
+for (const [name, markdown] of [
+	["a CJK line", "가".repeat(60)],
+	["a quoted CJK line", `> ${"가".repeat(50)}`],
+	["an indented line", `${" ".repeat(4)}y${"y".repeat(120)}`],
+	["a wide table cell", `| a |\n| --- |\n| ${"z".repeat(90)} |`],
+]) {
+	for (const width of [70, 80]) {
+		for (const budget of [1, 2]) {
+			const shown = truncateThinking(markdown, budget, { width });
+			const rows = turn(shown, width);
+			const hint = shown.includes("cycle)") ? 1 : 0;
+			check(
+				`${name} at width ${width} shows ${budget} row(s)`,
+				shown !== "" && rows - hint === budget,
+				`rows=${rows} hint=${hint} shown=${JSON.stringify(shown.slice(0, 40))}`,
+			);
+		}
+	}
+}
 
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAILED`);
 process.exit(fail === 0 ? 0 : 1);

@@ -60,15 +60,15 @@ check(
 	longLines[longLines.length - 1],
 );
 check(
-	"the block is the hint, a blank row and exactly 5 rows of text",
-	longLines.length === 7 &&
-		longLines.slice(2).every((line) => line.trim() !== ""),
+	"the block is the hint and exactly 5 rows of text",
+	longLines.length === 6 &&
+		longLines.slice(1).every((line) => line.trim() !== ""),
 	JSON.stringify(longLines),
 );
 check(
-	"the hint is separated from the tail by a blank row",
-	longLines[1] === "" &&
-		longLines.filter((line) => line.trim() === "").length === 1,
+	"the tail starts on the row under the hint",
+	longLines[1] === "line 26" &&
+		longLines.filter((line) => line.trim() === "").length === 0,
 	JSON.stringify(longLines),
 );
 
@@ -76,11 +76,12 @@ check(
 check(
 	"singular hint for one dropped line",
 	truncateThinking("l1\n\nl2\n\nl3", 2) ===
-		`... (1 earlier line, ${HINT})\n\nl2\nl3`,
+		`... (1 earlier line, ${HINT})\nl2\nl3`,
 );
 check(
 	"blank separators never enter the tail",
-	truncateThinking("l1\n\n\n\n\nl2", 1) === `... (1 earlier line, ${HINT})\n\nl2`,
+	truncateThinking("l1\n\n\n\n\nl2", 1) ===
+		`... (1 earlier line, ${HINT})\nl2`,
 );
 check(
 	"a block as tall as the budget is left whole",
@@ -103,8 +104,8 @@ check(
 );
 check(
 	"a fenced tail keeps exactly 7 reasoning rows",
-	// the hint, the blank row under it, then the seven rows of the fence's text
-	fenced.split("\n").length === 9 && fenced.split("\n")[1] === "",
+	// the hint row, then the seven rows of the fence's text with no blank row between them
+	fenced.split("\n").length === 8 && !fenced.includes("\n\n"),
 	JSON.stringify(fenced.split("\n")),
 );
 

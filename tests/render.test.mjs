@@ -71,26 +71,24 @@ const hintAt = preview.indexOf("... (25 earlier lines");
 const tailAt = preview.indexOf("step 26");
 const answerAt = preview.indexOf("Answer: 391");
 check("hint sits above the tail", hintAt !== -1 && hintAt < tailAt);
-// The block is N rows of reasoning plus the hint: the hint ends its own paragraph, a blank row
-// separates it from the tail, and every row under that is text.
+// The block is N rows of reasoning plus the hint: the tail hangs directly under the hint, and
+// every row under that is text.
 const previewLines = preview.split("\n").map((line) => line.trim());
 const hintLine = previewLines.findIndex((line) =>
 	line.startsWith("... (25 earlier"),
 );
 const tailLine = previewLines.findIndex((line) => line.startsWith("step 26:"));
 check(
-	"a blank row separates the hint from the tail",
-	tailLine === hintLine + 2 && previewLines[hintLine + 1] === "",
+	"the tail starts on the row under the hint",
+	tailLine === hintLine + 1,
 	`hint@${hintLine} tail@${tailLine}`,
 );
 check(
-	"the preview block is the hint, a blank row and exactly 5 rows of text",
+	"the preview block is the hint and exactly 5 rows of text",
 	hintLine !== -1 &&
-		previewLines
-			.slice(hintLine + 2, hintLine + 7)
-			.every((line) => line !== "") &&
-		previewLines[hintLine + 7] === "",
-	JSON.stringify(previewLines.slice(hintLine, hintLine + 8)),
+		previewLines.slice(hintLine + 1, hintLine + 6).every((line) => line !== "") &&
+		previewLines[hintLine + 6] === "",
+	JSON.stringify(previewLines.slice(hintLine, hintLine + 7)),
 );
 check(
 	"the tail sits above the answer",
@@ -179,8 +177,8 @@ const height = (lines) => {
 for (const n of [3, 5, 7, 9]) {
 	const shown = height(n);
 	check(
-		`preview of ${n} rows renders ${n} reasoning rows plus the hint and its blank row`,
-		shown === n + 2,
+		`preview of ${n} rows renders ${n} reasoning rows under the hint`,
+		shown === n + 1,
 		`${shown}`,
 	);
 }
@@ -231,15 +229,15 @@ const blockRows = (thinking, lines, width) => {
 	// block, including the empty row pi renders in front of a blockquote.
 	return out.slice(1, answerAt - 1);
 };
-// The hint and the blank row under it are not charged to the budget, so the block renders
-// exactly N rows of reasoning on top of them (the hint itself wraps on a narrow preview).
+// The hint is not charged to the budget, so the block renders exactly N rows of reasoning
+// under it (the hint itself wraps on a narrow preview).
 const hintRowCount = (rendered) => {
 	const last = rendered.findIndex((line) => line.includes("cycle)"));
 	return last >= 0 ? last + 1 : 0;
 };
 const reasoningRowCount = (rendered) => {
 	const hint = hintRowCount(rendered);
-	return rendered.length - hint - (hint > 0 ? 1 : 0);
+	return rendered.length - hint;
 };
 for (const [shape, text] of Object.entries(shapeOf)) {
 	for (const width of [100, 60, 34, 20]) {

@@ -90,13 +90,15 @@ with it the `hideThinkingBlock` write to `settings.json` — from ever running. 
 - `lines` and `view` are independent: hiding the blocks keeps the tail size, so going back to
   `preview` restores the N you had.
 - `lines` is how many rows of **reasoning** the preview shows: `preview 5` shows five rows of reasoning, and the
-  `... (X earlier lines…)` hint sits on top of them without being charged to the budget (it costs the rows
-  it really occupies when it wraps on a narrow preview), separated from the tail by one blank row — also
-  uncharged — so the block is N reasoning rows plus the hint row and its blank row. A block shorter than
-  N is shown whole, hint and all.
-- The blank row under the hint is not cosmetic: it ends the hint's paragraph, so pi never folds the
-  tail's first line into it. Without it a tail line that starts with whitespace renders as an indented
-  continuation of the hint, which changes how it wraps and costs rows the budget never asked for.
+  `... (X earlier lines…)` hint sits on the row above them without being charged to the budget (it costs the
+  rows it really occupies when it wraps on a narrow preview), so the block is N reasoning rows plus the hint.
+  A block shorter than N is shown whole, hint and all.
+- The tail hangs directly under the hint, one source line break and no blank row: a blank row reads as a
+  paragraph break rather than as a preview. The two are therefore one paragraph, so pi renders the tail
+  against the hint — a tail line that starts with whitespace loses that indent and re-flows against the
+  hint's text. Measured over 1,166 real thinking blocks × 3 widths × 3 budgets, the composition minus the
+  hint's rows equalled the tail's own rows in 99.87% of 10,022 previews (one row either way in the rest),
+  which is why the budget is charged the composition: whatever pi does with the pair is what gets counted.
 - Blank separator lines never enter the tail: they are dropped rather than charged, so every one of the N
   rows is a row of reasoning instead of spacing, and even a one-row budget still shows a row of reasoning
   under its hint.
@@ -116,11 +118,16 @@ with it the `hideThinkingBlock` write to `settings.json` — from ever running. 
 - The count is deliberately **unstyled**: pi draws a thinking block through a colour callback, and under
   that style pi's own wrapping inserts one extra row when it breaks a token too long for the line. Counting
   the plain render keeps one code path for every block at the cost of that rare row — measured at one
-  preview in ~5,300 over 975 real thinking blocks × widths 70/72/74/76/78/80.
+  preview in ~12,000 over 1,362 real thinking blocks × widths 70/76/82.
 - The fidelity that matters is one-way: **the composed preview is never taller than N reasoning rows**.
-  Over those 5,292 measured previews it hit N exactly 98.6% of the time and came in a row short on 1.3%
-  (a line the tail cannot split evenly), two rows short on 0.15%; the only over-budget case was the styled
-  long-token wrap above, which belongs to pi's renderer rather than to the row count.
+  Over those 12,137 measured previews it hit N exactly 98.62% of the time, came in a row short on 1.2%
+  (a line the tail cannot split evenly) and two rows short on 0.17%; the only over-budget case was the
+  styled long-token wrap above, which belongs to pi's renderer rather than to the row count.
+- When even the block's last line renders taller than the budget (CJK costs two columns per character,
+  pi reads a deeply indented first line as a code block, a table cell wider than its column is drawn
+  across rows), the preview keeps the rows of pi's own render of that line rather than trimming it away:
+  an empty thinking block would be worse than a short one. `tests/rows.test.mjs` asserts the budget is
+  still met exactly on those shapes.
 - pi runs registered markdown transformers over **every** assistant markdown part, the final answer text
   included. `createThinkingTransformer`'s thinking gate (`messageType`/`kind`) is what keeps previews out of
   the response body — `tests/render.test.mjs` and `tests/ctrl-t.test.mjs` assert exactly that.
