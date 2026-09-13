@@ -14,7 +14,9 @@ const {
 	rowCounterSource,
 	tailByRows,
 	truncateThinking,
-} = await import(new URL("../extensions/thinking-preview.ts", import.meta.url).href);
+} = await import(
+	new URL("../extensions/thinking-preview.ts", import.meta.url).href
+);
 const { initTheme } = await import(`${DIST}/index.js`);
 const { getMarkdownTheme } = await import(
 	`${DIST}/modes/interactive/theme/theme.js`
@@ -148,9 +150,7 @@ for (const width of [70, 80]) {
 	const wrong = [];
 	for (const md of formerDeviations)
 		if (countRenderedRows(md, width) !== turn(md, width))
-			wrong.push(
-				`pi=${turn(md, width)} counter=${countRenderedRows(md, width)}`,
-			);
+			wrong.push(`pi=${turn(md, width)} counter=${countRenderedRows(md, width)}`);
 	check(
 		`width ${width}: every former deviation exact`,
 		wrong.length === 0,
