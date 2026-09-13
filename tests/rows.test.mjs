@@ -241,5 +241,36 @@ for (const [name, markdown] of [
 	}
 }
 
+console.log(
+	"\n── markdown in the tail that re-shapes the hint cannot buy a row",
+);
+// The hint and the tail are one paragraph, so markdown in the tail can re-shape the hint itself:
+// a `===` / `---` underline on the line under the hint promotes the hint line to a heading and pi
+// colours it, which is all it takes for the hint to stop being a literal prefix of the
+// composition. An earlier version read that as "the merge re-wrapped the hint" and gave a row
+// back for it, so a five-row budget rendered six rows of reasoning. A tail line that merges
+// into the hint as a lazy continuation and re-flows it is the same family.
+for (const [name, markdown, width] of [
+	["a setext underline under the hint", "aaa\n===\naaa\n# h\naaa", 20],
+	["a thematic-break-looking underline", "aaa\n---\naaa\n# h\naaa", 20],
+	[
+		"a lazy continuation merging into the hint",
+		"    an indented line\n> quoted words here\n   more indented text\n> > nested quote\n| a | b |\n---\n# h1\n  1. a numbered item",
+		40,
+	],
+]) {
+	const budget = 5;
+	const shown = truncateThinking(markdown, budget, { width });
+	// The hint wraps when the preview is narrow, so its own rows are measured at the same width and
+	// taken off the composition's rows: what is left is what the reader counts as reasoning.
+	const hint = shown === "" ? "" : shown.split("\n")[0];
+	const rows = shown === "" ? 0 : turn(shown, width) - turn(hint, width);
+	check(
+		`${name} at width ${width}: at most ${budget} reasoning rows`,
+		shown !== "" && rows <= budget,
+		`rows=${rows}`,
+	);
+}
+
 console.log(fail === 0 ? "\nALL PASS" : `\n${fail} FAILED`);
 process.exit(fail === 0 ? 0 : 1);

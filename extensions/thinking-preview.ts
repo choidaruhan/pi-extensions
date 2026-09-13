@@ -739,9 +739,10 @@ function preview(hint: string, body: string): string {
  * equalled the tail's own rows in 99.87% of them and differed by one row either way in the rest —
  * which is why the budget is charged the composition: whatever pi does with the pair is counted.
  *
- * When the hint does not render as a prefix of the composition, the merge re-wrapped the hint and
- * the subtraction blames that row on the tail: one row is given back so the preview cannot render
- * over budget. Without a width or without pi's renderer this falls back to the tail's own rows.
+ * The composition is measured directly: correcting the count downward when the hint does not
+ * remain an exact rendered prefix can loosen the guard and allow a five-row budget to render
+ * six reasoning rows. Without a width or without pi's renderer this falls back to the tail's
+ * own rows.
  */
 function tailRowsInContext(hint: string, body: string, width: number): number {
 	if (hint === "" || width <= 0) return countRenderedRows(body, width);
@@ -749,11 +750,8 @@ function tailRowsInContext(hint: string, body: string, width: number): number {
 	const hintRows = piRenderedRowTexts(hint, width);
 	if (composed === null || hintRows === null)
 		return countRenderedRows(body, width);
-	const intact =
-		composed.length >= hintRows.length &&
-		hintRows.every((row, index) => composed[index] === row);
 	const rows = composed.length - hintRows.length;
-	return Math.max(0, intact ? rows : rows - 1);
+	return Math.max(0, rows);
 }
 
 /** The hint above a tail, reporting how many lines of reasoning it left out. */
