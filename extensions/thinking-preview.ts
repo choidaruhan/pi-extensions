@@ -495,9 +495,13 @@ export function measureLines(lines: string[], width: number): LineRow[] {
 		) {
 			// A plain line inside an open paragraph is a lazy continuation: markdown keeps it in
 			// that paragraph (inside a list item, inside a blockquote), so pi indents it to the
-			// paragraph's column and wraps it at the same reduced width.
+			// paragraph's column and wraps it at the same reduced width. Only the columns the
+			// paragraph already owns are consumed: whitespace past the paragraph's content
+			// column stays in the line, and pi wraps it as text (a line 2 columns from the wrap
+			// boundary is one row taller here than `line.trim()` would have it).
+			const indent = line.length - line.trimStart().length;
 			columns = paragraph;
-			body = line.trim();
+			body = line.slice(Math.min(indent, paragraph)).replace(/\s+$/, "");
 		} else {
 			levels.length = 0;
 			({ body, columns } = splitLinePrefix(line, 0));

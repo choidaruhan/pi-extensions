@@ -52,7 +52,7 @@ PI_OFFLINE=1 tools/pty-keys.py 14 6 2 -- pi --no-approve --no-extensions \
 - `tests/n-sweep.test.mjs` — N = 1/3/5, level changes on a live component, and pi's own hidden-thinking path
 - `tests/ctrl-t.test.mjs` — the extension's real `session_start` handler, the real `matchesKey`, Ctrl+T consumption, `/thinking-preview`, and handler stacking across sessions
 - `tests/state.test.mjs` — level persistence, precedence (flag > env > saved file > default), and legacy state files
-- `tests/rows.test.mjs` — row accounting checked against pi's real markdown renderer: whole-block counts for prose, CJK, lists, quotes and fences, plus the preview *tail* never exceeding N rendered rows (the reported bug: one long line previewed as one row)
+- `tests/rows.test.mjs` — row accounting checked against pi's real markdown renderer: whole-block counts for prose, CJK, lists, quotes and fences, the composed preview rendering exactly N rows plus its hint for indented continuation lines at the wrap boundary, plus the preview *tail* never exceeding N rendered rows (the reported bug: one long line previewed as one row)
 
 `tests/pi-root.mjs` locates the installed pi package (`$PI_ROOT`, then Homebrew Cellar, then npm `-g`)
 so the suites survive pi version bumps, and links pi's bundled `@earendil-works/pi-tui` into
@@ -100,8 +100,12 @@ with it the `hideThinkingBlock` write to `settings.json` — from ever running. 
   width is counted as the several rows it wraps to, and a preview whose budget lands in the middle of such
   a line shows the *tail* of that line, re-emitted one source line per row so it wraps at the same
   width). Fence markers are dropped with the tail, so the preview can never end on a
-  dangling fence. Known counting gap: pi renders a table cell across multiple rows, which can leave the
-  preview shorter than N.
+  dangling fence. A lazy continuation line keeps the whitespace it carries (pi wraps it at the
+  paragraph's reduced width), so its leading indent is counted with the text, not trimmed off.
+  Known counting gaps, all near a wrap boundary: pi renders a table cell across multiple rows, a
+  block whose *first* line is indented 4+ columns becomes an indented code block with rows of its
+  own, and inline emphasis the model strips is rendered literally by pi (`${_comps[${f#_}]}`), each
+  of which can leave the preview a row shorter or longer than N.
 - pi runs registered markdown transformers over **every** assistant markdown part, the final answer text
   included. `createThinkingTransformer`'s thinking gate (`messageType`/`kind`) is what keeps previews out of
   the response body — `tests/render.test.mjs` and `tests/ctrl-t.test.mjs` assert exactly that.
