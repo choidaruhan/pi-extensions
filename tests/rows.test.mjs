@@ -2,14 +2,19 @@
  * Row-aware preview tests.
  *
  * Everything here is checked against pi's own markdown renderer (the real `Markdown` class
- * from the installed dist), not against the extension's model of it: the model is only
- * allowed to disagree where a shape is documented below as a known deviation.
+ * from the installed dist). That is not a test-only oracle: the extension measures rows with
+ * the same class, so these tests compare the shipped counter against the renderer that draws
+ * it. The fallback model is covered separately, on the shapes it is expected to agree on.
  */
 import { DIST } from "./pi-root.mjs";
 
-const { countRenderedRows, tailByRows, truncateThinking } = await import(
-	new URL("../extensions/thinking-preview.ts", import.meta.url).href
-);
+const {
+	countRenderedRows,
+	measureLines,
+	rowCounterSource,
+	tailByRows,
+	truncateThinking,
+} = await import(new URL("../extensions/thinking-preview.ts", import.meta.url).href);
 const { initTheme } = await import(`${DIST}/index.js`);
 const { getMarkdownTheme } = await import(
 	`${DIST}/modes/interactive/theme/theme.js`
@@ -28,6 +33,10 @@ const check = (name, cond, extra = "") => {
 		`${cond ? "PASS" : "FAIL"}  ${name}${extra ? `  [${extra}]` : ""}`,
 	);
 };
+
+// If the renderer could not be built, every row assertion below would silently test the
+// fallback model instead, so fail loudly before measuring anything.
+check("rows come from pi's renderer", rowCounterSource() === "renderer");
 
 const words = "product seventeen times twenty three reasoning "
 	.repeat(12)
@@ -117,22 +126,59 @@ for (const width of [70, 80]) {
 			if (rows !== budget + 1)
 				wrong.push(`indent=${indent} len=${len}: ${rows} != ${budget + 1}`);
 		}
-	check(`width ${width}: exactly ${5} rows + hint`, wrong.length === 0, wrong.join(", "));
+	check(
+		`width ${width}: exactly ${5} rows + hint`,
+		wrong.length === 0,
+		wrong.join(", "),
+	);
 }
 
-console.log("\n── known deviations (reported, not asserted)");
-// Two shapes still make the model disagree with pi, in both directions. They are reported
-// instead of asserted so that a fix does not have to edit these tests:
-//  * inline emphasis the model strips but pi renders literally (a shell line like the one
-//    below): the model reads a shorter line and can miss a row pi needs to wrap it.
-//  * a block whose first line is indented 4+ columns: pi renders an indented code block.
-for (const md of [
-	'for f in $files; do [[ -n ${_comps[${f#_}]} ]] && (( matched++ )); done',
+console.log("\n── shapes the fallback model disagrees on, measured by pi");
+// The model above stays the fallback when a renderer cannot be built, so the shapes that
+// exposed its gaps stay in the suite: inline emphasis it strips where pi renders the markers
+// literally, a first line indented far enough that pi reads a code block, and a table cell
+// wider than the column pi pads. The shipped counter has to be exact on all of them.
+const formerDeviations = [
+	"for f in $files; do [[ -n ${_comps[${f#_}]} ]] && (( matched++ )); done",
 	`${" ".repeat(4)}y${"y".repeat(80)}`,
-])
-	console.log(
-		`  pi=${turn(md, 80)} model=${countRenderedRows(md, 80)}  ${JSON.stringify(md.slice(0, 34))}`,
+	'- `grep -rn "onTerminalInput\\|registerKeybinding" $D/dist/**/*.d.ts`',
+	`| shape | rows |\n| --- | --- |\n| long cell | ${"z".repeat(60)} |`,
+];
+for (const width of [70, 80]) {
+	const wrong = [];
+	for (const md of formerDeviations)
+		if (countRenderedRows(md, width) !== turn(md, width))
+			wrong.push(
+				`pi=${turn(md, width)} counter=${countRenderedRows(md, width)}`,
+			);
+	check(
+		`width ${width}: every former deviation exact`,
+		wrong.length === 0,
+		wrong.join(", "),
 	);
+}
+
+console.log("\n── the fallback model still holds on plain shapes");
+// Reached only when the renderer is unavailable, but still what the preview falls back to, so
+// it has to keep counting the shapes it claims: prose, CJK, list and quote prefixes, fences.
+const modelRows = (markdown, width) =>
+	measureLines(markdown.replace(/\s+$/, "").split("\n"), width).reduce(
+		(rows, line) => rows + line.rows,
+		0,
+	);
+for (const width of [20, 40, 100]) {
+	const wrong = [];
+	for (const name of ["prose", "long line", "cjk", "bullet", "quote", "fence"]) {
+		const md = shapes[name];
+		if (modelRows(md, width) !== turn(md, width))
+			wrong.push(`${name}: pi=${turn(md, width)} model=${modelRows(md, width)}`);
+	}
+	check(
+		`width ${width}: fallback model matches pi`,
+		wrong.length === 0,
+		wrong.join(", "),
+	);
+}
 
 console.log("\n── the reported bug: one long line, one row asked for");
 for (const width of [20, 40, 100]) {

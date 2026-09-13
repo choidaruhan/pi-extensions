@@ -75,25 +75,29 @@ export const PI_ROOT = findPiRoot();
 export const DIST = join(PI_ROOT, "dist");
 
 /**
- * The extension imports "@earendil-works/pi-tui" by bare specifier; pi's own
- * loader resolves it against its bundled copy. Plain node needs a node_modules
- * entry, so point one at that same copy — identical code, no vendoring.
+ * The extensions import "@earendil-works/pi-tui" and "@earendil-works/pi-coding-agent" by
+ * bare specifier; pi's own loader resolves them against the copies bundled with pi. Plain
+ * node needs node_modules entries, so point them at those same copies — identical code, no
+ * vendoring.
  */
-export function linkPiTui() {
-	const target = join(PI_ROOT, "node_modules", "@earendil-works", "pi-tui");
+export function linkPiPackage(name, target) {
 	if (!existsSync(join(target, "dist", "index.js"))) return null;
 	const dir = join(REPO_ROOT, "node_modules", "@earendil-works");
-	const link = join(dir, "pi-tui");
+	const link = join(dir, name);
 	try {
 		mkdirSync(dir, { recursive: true });
 		rmSync(link, { force: true });
 		symlinkSync(target, link, "dir");
 	} catch (error) {
-		console.log(`pi-tui link skipped: ${error.message}`);
+		console.log(`${name} link skipped: ${error.message}`);
 		return null;
 	}
 	return link;
 }
 
-/** Created on import so every suite can load the extension as-is. */
-export const PI_TUI_LINK = linkPiTui();
+/** Created on import so every suite can load the extensions as-is. */
+export const PI_TUI_LINK = linkPiPackage(
+	"pi-tui",
+	join(PI_ROOT, "node_modules", "@earendil-works", "pi-tui"),
+);
+export const PI_AGENT_LINK = linkPiPackage("pi-coding-agent", PI_ROOT);

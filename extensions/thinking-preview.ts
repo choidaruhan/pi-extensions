@@ -7,10 +7,10 @@
  *   1. full     every line of the block
  *   2. preview  the last `N` rows of the block, with a `... (X earlier lines, ctrl+t)`
  *               hint on its own row above them (default level). The hint is extra: N counts
- *               reasoning rows only. Rows are counted as they land on screen, so a line the
- *               terminal wraps costs the several rows it fills and a budget that ends
- *               mid-line shows the tail of that line; blank separators are dropped so
- *               every row the block shows is a row of reasoning.
+ *               reasoning rows only. Rows are counted by pi's own markdown renderer, so a line
+ *               the terminal wraps costs the several rows it fills and a budget that ends
+ *               mid-line shows the tail of that line; blank separators are dropped so every
+ *               row the block shows is a row of reasoning.
  *   3. hidden   a single muted `Thinking...` line, nothing else
  *
  * Defaults:
@@ -42,8 +42,12 @@
  *     session start and the command reports it.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	getMarkdownTheme,
+	type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
+import {
+	Markdown,
 	matchesKey,
 	visibleWidth,
 	wrapTextWithAnsi,
@@ -391,7 +395,11 @@ export function markdownPlain(line: string): string {
 }
 
 /**
- * Measure how many rows each source line occupies at `width`.
+ * The fallback row model: how many rows each source line occupies at `width`.
+ *
+ * `countRenderedRows` measures with pi's own renderer whenever it can and falls back to this
+ * model only when that renderer is unavailable, so this stays a model of pi's markdown rather
+ * than the authority on it.
  *
  * `width <= 0` means "no wrapping information": every non-blank line counts as one row,
  * which is the line-based behaviour of earlier versions. List nesting is resolved the way
@@ -527,8 +535,50 @@ export function measureLines(lines: string[], width: number): LineRow[] {
 	});
 }
 
+/**
+ * pi's own renderer, used to measure rows.
+ *
+ * Row accounting decides how much of a block the preview shows, so it has to agree with the
+ * renderer that draws it: pi wraps with `wrapTextWithAnsi` (the same function this module cuts
+ * lines with) and settles the rest with its own markdown parser — emphasis flanking rules,
+ * indented code blocks, table cells, fence handling. Its markdown theme carries the block
+ * prefixes (code block indent, list bullets, quote border) and closes over the live theme, so
+ * a single instance follows a theme switch.
+ *
+ * `measureLines` stays as the fallback: it needs no theme and reads the shapes this module
+ * emits itself, so a renderer that cannot be built or used degrades instead of throwing inside
+ * a streaming render.
+ */
+let renderer: Markdown | undefined;
+let rendererUnavailable = false;
+
+/** Rows `markdown` occupies when pi renders it at `width`; -1 when the renderer is unusable. */
+function piRenderedRows(markdown: string, width: number): number {
+	try {
+		renderer ??= new Markdown("", 0, 0, getMarkdownTheme(), undefined, {});
+		renderer.setText(markdown);
+		return renderer.render(width).length;
+	} catch {
+		// A pi release whose renderer or theme is not what this expects must not break the
+		// preview: the model below keeps the extension working, with coarser rows.
+		rendererUnavailable = true;
+		return -1;
+	}
+}
+
+/** Which counter `countRenderedRows` measures with: pi's renderer, or this module's model. */
+export function rowCounterSource(): "renderer" | "model" {
+	return rendererUnavailable ? "model" : "renderer";
+}
+
 /** Rows a whole block occupies at `width`, i.e. the number of lines a reader counts. */
 export function countRenderedRows(markdown: string, width: number): number {
+	// Without a width there is nothing to render at, and the model's line-based answer is the
+	// documented behaviour for that case.
+	if (width > 0 && !rendererUnavailable) {
+		const rows = piRenderedRows(markdown, width);
+		if (rows >= 0) return rows;
+	}
 	const lines = markdown.replace(/\s+$/, "").split("\n");
 	return measureLines(lines, width).reduce((rows, line) => rows + line.rows, 0);
 }
