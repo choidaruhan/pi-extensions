@@ -7,15 +7,16 @@ loaded into pi through symlinks from `~/.pi/agent/extensions/`.
 
 | Path | What it does |
 | --- | --- |
-| `extensions/thinking-preview.ts` | Shows the **first 5 lines** of every `Thinking…` block, then `... N more lines hidden`. No keys, no commands, no state — pi's own Ctrl+T still folds blocks away. |
+| `extensions/thinking-preview.ts` | Three levels for every `Thinking…` block, cycled with **Ctrl+T**: `preview` (the **first 5 lines**, then `... N more lines hidden (ctrl+t)` — the default), `full` (the whole block), `hidden` (one `Thinking...` line). No state file, no flag, no env var, no command. |
 | `extensions/web-search-summary-model.ts` | Keeps `web-search.json` → `summaryModel` pointed at the active pi model. Opt-in: does nothing unless that file has `"summaryModelAuto": true`. |
 
 Not in this repo: `~/.pi/agent/extensions/herdr-agent-state.ts`, which the `herdr` tool installs and
 overwrites — never edit it.
 
-`main` keeps the older, row-accurate version of `thinking-preview.ts` (markdown-rendered rows, a
-3-level Ctrl+T cycle, a persisted level file). The branch `simple-thinking-preview` (this one) is the
-minimal rewrite: the whole transformation is a `split("\n")` and a slice.
+`main` keeps the older, row-accurate version of `thinking-preview.ts`: the same three levels, but
+rendered rows instead of lines, plus a persisted level file, a `--thinking-preview` flag, an env var
+and a `/thinking-preview` command. The branch `simple-thinking-preview` (this one) keeps the three
+levels and drops all of that — the whole transformation is a `split("\n")` and a slice.
 
 ## How pi loads these
 
@@ -49,15 +50,19 @@ d=$(node tools/make-pty-fixture.mjs)      # a 25-line thinking block + a short a
 PI_OFFLINE=1 tools/pty-keys.py "" 8 4 -- pi --session "$d" -e ./extensions/thinking-preview.ts
 ```
 
-The screen must show 5 reasoning lines, the `... 20 more lines hidden` hint, and the answer text.
+The screen must show the first 5 reasoning lines, the `... 20 more lines hidden (ctrl+t)` hint, and
+the answer text. Send the key to check the cycle — `tools/pty-keys.py 14 10 3 -- ...` presses Ctrl+T
+(`\x14`), and the screen must then show all 25 reasoning lines and no hint.
 
 ## Tests
 
 `./run-tests.sh` runs one suite with plain `node` (Node ≥ 23 strips TypeScript natively):
 
-- `tests/thinking-preview.test.mjs` — `previewThinking` (head size, exact hint wording and count,
-  blank separators, block that fits, custom budget) and the thinking gate, the registration wiring
-  through a fake `pi`, and a render through pi's real `AssistantMessageComponent` with the same
+- `tests/thinking-preview.test.mjs` — `promptThinking` per level (head size, exact hint wording and
+  count, blank separators, block that fits, custom budget, `full` untouched, `hidden` label), the
+  cycle order and the thinking gate, the registration wiring through a fake `pi`/`ui` with pi's real
+  `matchesKey` (Ctrl+T consumed, neighbouring keys not, subscription replaced across sessions,
+  shutdown), and a render per level through pi's real `AssistantMessageComponent` with the same
   arguments interactive mode passes.
 
 `tests/pi-root.mjs` locates the installed pi package (`$PI_ROOT`, then Homebrew Cellar, then npm `-g`)
@@ -81,6 +86,18 @@ git clone git@github.com:choidaruhan/pi-extensions.git ~/dev/pi-extensions
   five terminal rows when a line wraps. That is the deliberate trade for a transformer that does no
   markdown parsing, no width measurement and no row counting — cheap enough to re-run on every
   streaming update.
+- **Ctrl+T is intercepted, not registered.** `ctrl+t` is pi's reserved `app.thinking.toggle`, so an
+  extension cannot claim it with `pi.registerShortcut`. Instead the extension listens on
+  `ctx.ui.onTerminalInput()` and returns `{ consume: true }`, which stops pi's built-in toggle — and
+  with it the `hideThinkingBlock` write to `settings.json` — from running. Verified in a real pty: the
+  screen goes from 5 reasoning lines to all 25 while `hideThinkingBlock` stays `false`.
+- The level is module state, so it lives for the **run**: a new pi starts at `preview` again. The
+  subscription is re-registered on every `session_start` (pi fires it again on a session switch) after
+  dropping the previous one, or one keypress would advance two levels.
+- Changing the level must re-render **already-rendered** blocks, since a transformer's output is baked
+  in when the block first renders. `ctx.ui.setHiddenThinkingLabel()` with no argument is the only
+  redraw entry point the extension UI API exposes (see docs/extensions.md); pi resolves the missing
+  label to its default and calls `updateContent` on every rendered message.
 - **The visible part is a fixed head**, so it never moves while the model is still thinking: no
   scroll jitter, and no re-measure per delta.
 - Blank separator lines are neither spent from the budget nor counted as hidden, so the hint's count
