@@ -11,14 +11,13 @@ key in a real terminal. This harness does that without tmux:
 the screen is drained for a further `wait-after` seconds, then the child is
 killed. The last screen lines are printed with ANSI/control sequences stripped.
 
-Example — prove that Ctrl+T reaches the thinking-preview extension and not pi's
-built-in toggle (which would persist hideThinkingBlock=true in settings.json):
+Example — see what the thinking-preview extension actually draws, with no
+model call and no tokens: `pi --session <file>` replays a fabricated
+transcript, so the transformer's output is on screen immediately.
 
-    # before: note settings.json hideThinkingBlock and thinking-preview.json
-    tools/pty-keys.py 14 6 2 -- pi --no-approve --no-extensions \\
+    d=$(ls -d ~/.pi/agent/sessions/--Users-choidaruhan-dev-pi-extensions--)
+    PI_OFFLINE=1 tools/pty-keys.py "" 8 4 -- pi --session "$d/zz-pty-fixture.jsonl" \
         -e ./extensions/thinking-preview.ts
-    # after: the footer must read "thinking:hidden", settings.json must be
-    # unchanged, and thinking-preview.json must hold the new level
 
 Pass PI_OFFLINE=1 to keep pi's startup network calls out of the run.
 """
