@@ -80,8 +80,7 @@ check(
 );
 check(
 	"blank separators never enter the tail",
-	truncateThinking("l1\n\n\n\n\nl2", 1) ===
-		`... (1 earlier line, ${HINT})\nl2`,
+	truncateThinking("l1\n\n\n\n\nl2", 1) === `... (1 earlier line, ${HINT})\nl2`,
 );
 check(
 	"a block as tall as the budget is left whole",

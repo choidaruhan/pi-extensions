@@ -216,7 +216,9 @@ check(
 	JSON.stringify(cutLines.at(-1)),
 );
 
-console.log("\n── a block taller than the budget even on its own still shows rows");
+console.log(
+	"\n── a block taller than the budget even on its own still shows rows",
+);
 // Shapes where the render disagrees with the line model about a single line's height: CJK costs
 // two columns per character, pi reads an indented first line as a code block, and a table cell
 // wider than its column is drawn across rows. The fallback used to trim the only line away and
